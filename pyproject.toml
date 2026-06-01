@@ -1,0 +1,43 @@
+[project]
+name = "portal-hitl"
+version = "0.1.0"
+description = "Human-in-the-loop teleop + recording on top of livekit-portal. A Seeed reBot Arm B601-DM (6-DOF + gripper) follower driven by a remote operator with a reBot 102 leader; the operator side records LeRobotDataset episodes and can hand off to a policy."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "livekit-portal>=0.2.3",
+    "livekit-api>=0.7",
+    # Stock PyPI lerobot. The `training` extra pulls the dataset stack
+    # (datasets/pandas/pyarrow/torchcodec) the recorder + trainer need
+    # plus wandb/accelerate. We run ACT/Diffusion only; both import
+    # cleanly from `lerobot.policies` and need no transformers, so we
+    # avoid the VLA extras (and their transformers==5.3.0 pin) entirely.
+    "lerobot[training]>=0.5",
+    # Seeed reBot Arm B601-DM follower (CAN / Damiao motors via motorbridge)
+    # and reBot 102 leader (FashionStar smart servos via
+    # motorbridge-smart-servo). Published to PyPI by Seeed-Projects; see
+    # https://wiki.seeedstudio.com/rebot_arm_b601_dm_lerobot/
+    "lerobot-robot-seeed-b601>=0.1.2",
+    "lerobot-teleoperator-rebot-arm-102>=0.2.0",
+    "motorbridge>=0.3.9",
+    "motorbridge-smart-servo>=0.0.4",
+    "rerun-sdk>=0.26",
+    "numpy>=1.24",
+    "python-dotenv>=1",
+    "opencv-python>=4.5",
+    "pynput>=1.7",
+    "torch>=2.2",
+]
+
+[dependency-groups]
+# Cloud training environments don't need livekit / pynput / opencv / the
+# hardware plugins — training only reads the recorded dataset. The
+# `training` extra carries the dataset stack + wandb/accelerate. Keep
+# this slice minimal so `uv sync --only-group train` produces a small
+# trainer image.
+train = [
+    "lerobot[training]>=0.5",
+]
+
+# Flat layout on purpose — `uv run robot.py` / `uv run teleoperator.py` /
+# `uv run policy.py` from this directory. No CLI, no package, no wheel.
+# Read the scripts top-to-bottom; they are the example.

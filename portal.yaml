@@ -1,0 +1,106 @@
+# Wire contract shared by robot.py, teleoperator.py, and policies/<algo>/inference.py.
+#
+# Loaded via `RobotConfig.from_yaml_file(...)` and
+# `OperatorConfig.from_yaml_file(...)`. Identity (session, role) is supplied
+# at the call site so the same file is reusable across all three processes.
+#
+# Hardware = Seeed reBot Arm B601-DM: a 6-DOF arm plus a gripper, 7
+# actuated joints total. All joints are absolute position-controlled
+# (degrees at the lerobot boundary). There is no linear slider or other
+# extra axis — the leslider's `slider.vel` field is gone; the B601 adds a
+# `wrist_yaw` joint the SO-101 didn't have.
+#
+# State and action are intentionally lean (7 position fields, no motor
+# velocities/torques). The follower exposes `.vel`/`.torq` per motor at
+# runtime, but we publish only `.pos`; add those fields to both schemas
+# (and stop filtering them out in utils/rebot.py) if you want them.
+
+version: 1
+
+fps: 30 # observation rate
+
+# Sync pacing. Both are in tick intervals (1 tick = 1/fps ≈ 33ms at 30fps).
+#   slack:     pipeline headroom — how long the synchronizer waits for
+#              late state/frames before forcing emission (or dropping). A
+#              bigger value absorbs more arrival jitter at the cost of
+#              added end-to-end latency. Bumped from the default to test
+#              the 'overhead_camera' sync-buffer overflows: if the drops
+#              stop, the lag was transient jitter; if they only slow down,
+#              it's steady link saturation (slack can't add throughput).
+#   tolerance: state/frame timestamp match window (left at default here).
+slack: 10
+# tolerance: 1.5
+
+# When a state sample arrives at the operator's synchronizer with no
+# fresh frame inside the sync window, reuse the last good frame instead
+# of dropping the state. We want every robot tick to land in the
+# dataset; a transient camera drop should not punch a hole in the
+# trajectory. The reused frame is at most a couple of ticks old.
+reuse_stale_frames: true
+
+# Operators receive the executed action stream over the wire. The
+# teleoperator needs this to record actions tagged with the correct
+# Action.sender during HITL handoff; the policies don't strictly need
+# it but pay a negligible bandwidth cost for being consistent.
+action_subscription: true
+
+# Two RGB cameras (arm-mounted + overhead), wired as USB/V4L2 OpenCV
+# devices. Every declared track MUST actually publish: with
+# reuse_stale_frames on, the synchronizer withholds observations until
+# every track has emitted at least once, so a declared-but-silent camera
+# stalls state and overflows the live track's buffer. The B601 also
+# supports RealSense/Orbbec depth cameras; switch the builders in
+# utils/rebot.py if you go RGB-D. Each algo's training may ablate one
+# (see policies/<algo>/train.py).
+#
+# Codec choice. MJPEG is used here for training-data fidelity: per-frame
+# JPEG, frame-independent, no inter-frame prediction artifacts.
+#
+# There is NO bitrate knob for MJPEG (the video spec is just
+# name+codec+quality). Effective bitrate = per-frame JPEG size x fps, so
+# you tune it with three levers:
+#   * quality (below, 1..100)   — direct per-frame size, trades fidelity
+#   * resolution (B601_CAM_*)   — ~quadratic, trades spatial detail
+#   * PORTAL_FPS (.env)         — linear, trades only temporal rate;
+#                                 frames stay full-quality JPEGs
+#
+# Caveat on a constrained / self-hosted uplink: MJPEG rides the reliable
+# DATA channel, the same transport as `portal_state`. If the MJPEG stream
+# exceeds the link, it head-of-line-blocks and starves state (you'll see
+# publish-queue / sync-buffer overflows and state drops). Budget MJPEG
+# bandwidth BELOW your sustained uplink so state has headroom — drop fps
+# first (keeps each frame crisp), then resolution, then quality. The
+# alternative is `codec: h264`, which rides a separate congestion-
+# controlled RTP path (quality ignored) and never competes with state —
+# at the cost of inter-frame artifacts. `max_bitrate_kbps` caps the H264
+# encoder's *peak* rate (a ceiling, not a target; default 10 Mbps when
+# omitted). We set it high (50 Mbps/track) so the encoder has headroom
+# for near-lossless frames on a fat link; congestion control still
+# adapts the actual rate down on a constrained uplink.
+#   png:  lossless byte-stream over the data channel (~2-3x). Bit-exact.
+#   raw:  uncompressed RGB24. Largest payload; rarely justified.
+videos:
+  - { name: arm_camera, codec: h264, max_bitrate_kbps: 50000 }
+  - { name: overhead_camera, codec: h264, max_bitrate_kbps: 50000 }
+
+# 7 absolute joint positions (6 arm joints + gripper), in the B601
+# follower's native order.
+state:
+  - { name: shoulder_pan.pos, dtype: f32 }
+  - { name: shoulder_lift.pos, dtype: f32 }
+  - { name: elbow_flex.pos, dtype: f32 }
+  - { name: wrist_flex.pos, dtype: f32 }
+  - { name: wrist_yaw.pos, dtype: f32 }
+  - { name: wrist_roll.pos, dtype: f32 }
+  - { name: gripper.pos, dtype: f32 }
+
+# Action mirrors state. Both human teleop (reBot 102 leader) and any
+# lerobot policy emit one of these per tick.
+action:
+  - { name: shoulder_pan.pos, dtype: f32 }
+  - { name: shoulder_lift.pos, dtype: f32 }
+  - { name: elbow_flex.pos, dtype: f32 }
+  - { name: wrist_flex.pos, dtype: f32 }
+  - { name: wrist_yaw.pos, dtype: f32 }
+  - { name: wrist_roll.pos, dtype: f32 }
+  - { name: gripper.pos, dtype: f32 }
