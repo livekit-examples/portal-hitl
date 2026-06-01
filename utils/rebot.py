@@ -13,7 +13,10 @@ wrist_yaw, wrist_roll, gripper.
 """
 from __future__ import annotations
 
+import logging
 import platform
+import threading
+import time
 
 import numpy as np
 
@@ -30,11 +33,130 @@ from lerobot_teleoperator_rebot_arm_102 import (
 
 from _common import env_camera_id, env_int, env_str, required_env
 
+logger = logging.getLogger(__name__)
+
 CAMERAS: tuple[str, ...] = ("arm_camera", "overhead_camera")
 """Track names. Must match what's declared in ``portal.yaml``; the YAML
 is the source of truth for the wire contract. This constant just lets
 robot.py and teleoperator.py iterate without reaching back into the
 config."""
+
+
+class _ResilientCamera:
+    """Wraps a lerobot camera so a transient frame stall or a dead read
+    thread never propagates out of ``follower.get_observation()``.
+
+    Two failure modes show up on USB webcams under load:
+
+      * ``async_read()`` raises ``TimeoutError`` when no fresh frame lands in
+        its window (USB bandwidth contention, a momentary stall). This is
+        recoverable on its own — the next tick usually succeeds.
+      * ``async_read()`` raises ``RuntimeError`` ("read thread is not running")
+        once the background read thread has died after too many consecutive
+        hardware-read failures ("Read thread alive: False"). This does *not*
+        self-heal: the device must be reconnected.
+
+    Either exception, raised mid-``get_observation()``, otherwise tears down
+    the whole control loop and drops the motor state that was already read.
+    Instead we serve the last good frame across the gap and kick off a
+    rate-limited reconnect (on a background thread, so the control loop never
+    blocks on hardware) when the thread is dead. We return ``None`` only until
+    the first frame ever arrives — ``split_state_frames`` filters that out, so
+    a never-yet-seen camera simply isn't published that tick while motor state
+    keeps flowing.
+
+    Installed by shadowing ``cam.async_read`` with an instance attribute, so
+    the vendored follower keeps calling its cameras exactly as before.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        cam,
+        timeout_ms: float,
+        reconnect_interval_s: float = 2.0,
+    ) -> None:
+        self._name = name
+        self._cam = cam
+        self._timeout_ms = timeout_ms
+        self._reconnect_interval_s = reconnect_interval_s
+        # Captured before we shadow cam.async_read below — this is the real
+        # (decorated) bound method. Never re-grab it: cam.async_read now points
+        # at our wrapper, so re-grabbing would recurse forever.
+        self._orig_async_read = cam.async_read
+        self._last_frame: np.ndarray | None = None
+        self._last_reconnect = 0.0
+        self._reconnecting = False
+        self._lock = threading.Lock()
+
+    def install(self) -> None:
+        # Instance attribute shadows the class method; get_observation()'s
+        # `cam.async_read()` now routes through us.
+        self._cam.async_read = self.async_read
+
+    def async_read(self, *args, **kwargs) -> np.ndarray | None:  # noqa: ANN002
+        kwargs.setdefault("timeout_ms", self._timeout_ms)
+        try:
+            frame = self._orig_async_read(*args, **kwargs)
+            self._last_frame = frame
+            return frame
+        except TimeoutError as exc:
+            # Frame just didn't arrive in time. Reuse the last good one.
+            logger.warning("%s: %s — reusing last frame", self._name, exc)
+            return self._last_frame
+        except Exception as exc:
+            # Thread dead / device gone. Won't recover without a reconnect.
+            logger.warning(
+                "%s: read failed (%s) — scheduling reconnect, reusing last frame",
+                self._name, exc,
+            )
+            self._maybe_reconnect()
+            return self._last_frame
+
+    def _maybe_reconnect(self) -> None:
+        now = time.monotonic()
+        with self._lock:
+            if self._reconnecting:
+                return
+            if now - self._last_reconnect < self._reconnect_interval_s:
+                return
+            self._reconnecting = True
+            self._last_reconnect = now
+        threading.Thread(
+            target=self._reconnect, name=f"{self._name}_reconnect", daemon=True
+        ).start()
+
+    def _reconnect(self) -> None:
+        try:
+            try:
+                self._cam.disconnect()
+            except Exception:
+                pass  # already down; connect() is what matters
+            # warmup=False: don't block this thread waiting on a flaky device;
+            # the control loop keeps serving the last frame until one lands.
+            self._cam.connect(warmup=False)
+            logger.info("%s: reconnected", self._name)
+        except Exception as exc:
+            logger.warning("%s: reconnect failed (%s) — will retry", self._name, exc)
+        finally:
+            self._reconnecting = False
+
+
+def _harden_cameras(follower: SeeedB601DMFollower) -> None:
+    """Make follower camera reads degrade gracefully instead of crashing the
+    control loop on a single dropped frame or a dead read thread.
+
+    Safe to install before ``follower.connect()``: ``connect()`` starts the
+    read thread *before* its warmup reads, so the only exception warmup can hit
+    is ``TimeoutError`` (which just reuses the last frame — it never triggers a
+    reconnect). The dangerous reconnect path requires a *dead* thread, which
+    can't happen during the connect that just started it. A genuine startup
+    failure still surfaces: ``connect()``'s own ``latest_frame is None`` check
+    raises ``ConnectionError`` regardless of what the wrapper swallows.
+    """
+    timeout_ms = env_int("B601_CAM_READ_TIMEOUT_MS", 200)
+    for name, cam in follower.cameras.items():
+        _ResilientCamera(name, cam, timeout_ms=timeout_ms).install()
 
 
 def build_follower(fps: int) -> SeeedB601DMFollower:
@@ -70,13 +192,17 @@ def build_follower(fps: int) -> SeeedB601DMFollower:
         )
         for name, (env_var, default) in cam_defaults.items()
     }
-    return SeeedB601DMFollower(SeeedB601DMFollowerConfig(
+    follower = SeeedB601DMFollower(SeeedB601DMFollowerConfig(
         id=env_str("B601_ID", "follower1"),
         port=env_str("B601_PORT", "/dev/ttyACM0"),
         can_adapter=env_str("B601_CAN_ADAPTER", "damiao"),
         dm_serial_baud=env_int("B601_DM_SERIAL_BAUD", 921600),
         cameras=cameras,
     ))
+    # Camera reads degrade gracefully (reuse last frame, reconnect dead
+    # devices) instead of crashing the control loop on a dropped frame.
+    _harden_cameras(follower)
+    return follower
 
 
 def build_leader() -> RebotArm102Leader:
