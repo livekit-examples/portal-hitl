@@ -248,6 +248,10 @@ hardcode IPs; only `LIVEKIT_URL` does, and that's an env var.
 The `tutorial/` folder walks through the Portal patterns this code
 uses, in order:
 
+0. [What is Portal?](tutorial/00-what-is-portal.md). The concepts in one
+   page: robot/operator roles, synced observations, actions, the
+   active-operator gate, and a two-file session to anchor them, plus the
+   problems the rest of the tutorial solves.
 1. [Wire contract](tutorial/01-wire-contract.md). `portal.yaml`,
    `RobotConfig` / `OperatorConfig`, schema fingerprinting, codec
    choice.
