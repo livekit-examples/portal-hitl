@@ -3,8 +3,8 @@
 A policy is just another `Operator`. It loads the same `portal.yaml`,
 subscribes to observations, and sends one action per tick. The
 Portal-facing flow is identical regardless of which model class is
-behind `select_action`. The two examples in this repo are
-`policies/act/inference.py` and `policies/diffusion/inference.py`.
+behind `select_action`. The example in this repo is
+`policies/act/inference.py`.
 
 This page walks the per-tick flow that policies use.
 
@@ -123,8 +123,8 @@ Reordering would silently mis-route values to the wrong motors.
 Copy `policies/act/inference.py` as a starting point. Replace:
 
 - The model class (`ACTPolicy.from_pretrained`).
-- The model-specific runtime knobs (temporal ensembler for ACT, async
-  chunk wrapper for Diffusion).
+- The model-specific runtime knobs (e.g. the temporal ensembler for
+  ACT).
 - The CLI arguments.
 
 Keep:
