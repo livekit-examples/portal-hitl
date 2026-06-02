@@ -22,14 +22,23 @@ contract for this side:
 
 Recording is driven by ``on_action``. One executed action gives one
 dataset row, paired with the observation the operator was responding
-to (anchored by ``in_reply_to_ts_us`` when the operator passed it,
-otherwise by the action's send timestamp). With reuse_stale_frames on,
-the sync delay is small and predictable, and actions always arrive at
-this operator after the obs they reference. So a simple "find newest
-obs <= target_ts" reconciliation is correct for steady state. The
-``PORTAL_HITL_MAX_OBS_AGE_MS`` threshold (default 100ms) covers the
-corner case where a state packet's wire transport is jittered enough
-to flip the order; mismatched pairs are dropped and counted.
+to. The pairing uses the right clock for each operator:
+
+* Policy actions carry ``in_reply_to_ts_us`` (a robot-clock capture
+  time naming the exact obs consumed), matched against the obs capture
+  timestamp — same clock, so the pairing is exact.
+* Leader actions are open-loop: the human reacts to whatever obs they
+  were *looking at*, i.e. the most recently *received* one. They are
+  matched on the action's teleop send time vs each obs's local receive
+  time (both teleop clock). Comparing the leader's teleop send time
+  against the robot-clock capture timestamp instead would fold in the
+  robot/teleop clock offset plus the full transport latency, inflating
+  every gap and tripping the threshold even when nothing is misaligned.
+
+The ``PORTAL_HITL_MAX_OBS_AGE_MS`` threshold (default 100ms) then
+measures only how stale the operator's view actually was, dropping (and
+counting) a row only when the obs stream the operator was watching has
+genuinely stalled.
 
 Hotkeys:
   c: cycle the active operator through ``[self, *remote_operators]``,
@@ -134,11 +143,14 @@ async def main() -> None:
     latest_frames: dict[str, np.ndarray] = {}
     latest_executed: Optional[Action] = None
 
-    # Ring buffer of recent observations. Sized for ~500ms of history at
-    # 30Hz: enough to align an action against the obs the operator was
-    # responding to even with sync jitter, but bounded so memory doesn't
-    # grow during a long session.
-    obs_history: deque[Observation] = deque(maxlen=16)
+    # Ring buffer of recent observations as (obs, local_recv_us) pairs.
+    # local_recv_us is this machine's wall clock when the obs arrived, so
+    # leader actions can be matched against when the operator *saw* an obs
+    # (teleop clock) rather than when the robot *captured* it (robot clock).
+    # Sized for ~500ms of history at 30Hz: enough to align an action against
+    # the obs the operator was responding to even with sync jitter, but
+    # bounded so memory doesn't grow during a long session.
+    obs_history: deque[tuple[Observation, int]] = deque(maxlen=16)
     skipped_frames = 0
 
     recorder: Optional[DatasetRecorder] = None
@@ -151,7 +163,9 @@ async def main() -> None:
             f = obs.frames.get(cam)
             if f is not None:
                 latest_frames[cam] = frame_bytes_to_numpy_rgb(f.data, f.width, f.height)
-        obs_history.append(obs)
+        # Stamp arrival on this machine's clock; on_observation fires on
+        # receipt, so time.time() here is the obs's local receive time.
+        obs_history.append((obs, int(time.time() * 1_000_000)))
 
     def on_action(action: Action) -> None:
         # The action stream drives the recorder. One action = one row,
@@ -162,21 +176,33 @@ async def main() -> None:
         if recorder is None or not recorder.is_recording:
             return
 
-        # Policies pass `in_reply_to_ts_us` to anchor the action to a
-        # specific observation. The teleop leader doesn't, so fall back
-        # to the action's own send timestamp as a "what the human saw
-        # when they moved" approximation.
-        target_ts = action.in_reply_to_ts_us or action.timestamp_us
+        # Pick the reference timestamp and the obs clock to compare it against:
+        #   * Policy actions carry `in_reply_to_ts_us`, a robot-clock capture
+        #     time naming the exact obs the policy consumed. Match on the obs
+        #     capture timestamp (same clock) — an exact, skew-free pairing.
+        #   * Leader actions are open-loop: the human reacts to whatever obs
+        #     they were *looking at*, i.e. the most recently *received* one.
+        #     Match the action's teleop send time against each obs's local
+        #     receive time (both teleop clock). This avoids the robot/teleop
+        #     clock skew and the baseline transport latency that comparing a
+        #     teleop send time against a robot capture time would fold in, so
+        #     the age below measures how stale the operator's view was — not
+        #     the link RTT.
+        match_on_recv = action.in_reply_to_ts_us is None
+        target_ts = action.timestamp_us if match_on_recv else action.in_reply_to_ts_us
 
         aligned: Observation | None = None
-        for o in reversed(obs_history):
-            if o.timestamp_us <= target_ts:
-                aligned = o
+        age = 0
+        for obs, recv_us in reversed(obs_history):
+            obs_ts = recv_us if match_on_recv else obs.timestamp_us
+            if obs_ts <= target_ts:
+                aligned = obs
+                age = target_ts - obs_ts
                 break
         if aligned is None:
             return  # episode start, no obs old enough yet
 
-        if target_ts - aligned.timestamp_us > max_obs_age_us:
+        if age > max_obs_age_us:
             skipped_frames += 1
             return  # observation stream stalled; would mislabel the row
 
