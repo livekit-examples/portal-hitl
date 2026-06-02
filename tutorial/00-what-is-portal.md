@@ -161,6 +161,7 @@ Each remaining page takes on one piece:
 | [04. HITL recording](04-hitl-recording.md)             | Record whoever is driving and line each action up with the observation it answered.      |
 | [05. Handoff](05-handoff.md)                           | Trade control between a human and a policy mid-session, cleanly.                         |
 | [06. Plugging in a policy](06-plugging-in-policies.md) | Drop a trained ACT checkpoint in as just another operator.                               |
+| [07. Running the rig](07-running-the-rig.md)           | The runbook: setup, calibration, collect data, train, run inference, deploy.             |
 
 Read top to bottom, they build the rig from the contract up.
 

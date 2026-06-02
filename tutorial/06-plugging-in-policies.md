@@ -142,3 +142,6 @@ shims for object-storage symlinks and worker prefetch. Adapt the
 flags for your model, leave the rest.
 
 That is the whole pattern. The robot side never changes.
+
+Next: [07. Running the rig](07-running-the-rig.md) — the runbook for
+bringing the hardware online and running the full loop.
