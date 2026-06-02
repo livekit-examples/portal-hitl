@@ -65,8 +65,24 @@ class _ResilientCamera:
     a never-yet-seen camera simply isn't published that tick while motor state
     keeps flowing.
 
-    Installed by shadowing ``cam.async_read`` with an instance attribute, so
-    the vendored follower keeps calling its cameras exactly as before.
+    We also present the camera as *connected* for as long as we hold a buffered
+    frame. ``SeeedB601DMFollower.is_connected`` is ``self.bus is not None and
+    all(cam.is_connected ...)``, and ``get_observation()`` / ``send_action()``
+    guard on it. Our own ``_reconnect()`` calls ``cam.disconnect()`` (which sets
+    ``videocapture = None``), so without this the camera's ``is_connected``
+    would flip ``False`` mid-reconnect, drag the whole follower to
+    "disconnected", and raise ``DeviceNotConnectedError`` out of the motor
+    calls — tearing down the control loop (and then ``disconnect()`` in the
+    ``finally`` raises a *second* time: "FATAL: exception not rethrown"). Since
+    we guarantee frame continuity by serving the last good frame, we report
+    connected whenever a frame is buffered, so a camera blip never interrupts
+    motor I/O. A real loss still surfaces: before the first frame ever arrives
+    (startup) ``is_connected`` reflects the true device state.
+
+    Installed by shadowing ``cam.async_read`` with an instance attribute and
+    patching the camera class's ``is_connected`` property to consult the
+    managing wrapper, so the vendored follower keeps calling its cameras
+    exactly as before.
     """
 
     def __init__(
@@ -93,6 +109,16 @@ class _ResilientCamera:
         # Instance attribute shadows the class method; get_observation()'s
         # `cam.async_read()` now routes through us.
         self._cam.async_read = self.async_read
+        # Back-reference so the patched is_connected property can find us,
+        # then patch the property (once per class) to report connected while
+        # we hold a buffered frame. See the class docstring.
+        self._cam._resilient_camera = self
+        _patch_camera_is_connected(type(self._cam))
+
+    def _present_connected(self, real_connected: bool) -> bool:
+        # True device state wins; otherwise present connected as long as we
+        # can serve a buffered frame across a reconnect gap.
+        return real_connected or self._last_frame is not None
 
     def async_read(self, *args, **kwargs) -> np.ndarray | None:  # noqa: ANN002
         kwargs.setdefault("timeout_ms", self._timeout_ms)
@@ -140,6 +166,30 @@ class _ResilientCamera:
             logger.warning("%s: reconnect failed (%s) — will retry", self._name, exc)
         finally:
             self._reconnecting = False
+
+
+def _patch_camera_is_connected(cam_cls: type) -> None:
+    """Patch a camera class's ``is_connected`` property (once) to consult the
+    managing :class:`_ResilientCamera`, if any.
+
+    The property is defined on the class, so an instance attribute can't shadow
+    it; we wrap the class getter instead. Idempotent via a sentinel attribute.
+    Instances with no ``_resilient_camera`` back-reference fall through to the
+    original behavior, so this is safe even if the class is shared.
+    """
+    if getattr(cam_cls, "_resilient_is_connected_patched", False):
+        return
+    orig_prop = cam_cls.is_connected  # the property object
+
+    def is_connected(self) -> bool:
+        real = orig_prop.fget(self)
+        rc = getattr(self, "_resilient_camera", None)
+        if rc is None:
+            return real
+        return rc._present_connected(real)
+
+    cam_cls.is_connected = property(is_connected)
+    cam_cls._resilient_is_connected_patched = True
 
 
 def _harden_cameras(follower: SeeedB601DMFollower) -> None:
