@@ -6,8 +6,8 @@ for a [Seeed reBot Arm B601-DM](https://wiki.seeedstudio.com/rebot_arm_b601_dm_l
 [`livekit-portal`](https://github.com/livekit/livekit-portal).
 
 A human flies the remote B601-DM follower with a local reBot 102 leader
-arm. At any moment they can hand control off to a trained policy (ACT or
-Diffusion). The teleoperator process also records:
+arm. At any moment they can hand control off to a trained ACT policy.
+The teleoperator process also records:
 every executed action, human or policy, is paired with the synchronized
 observation and written to a `LeRobotDataset` episode.
 
@@ -18,9 +18,10 @@ portal-hitl/
 ├── portal.yaml             # shared wire contract
 ├── _common.py              # env loader, token minter, async pacer
 ├── robot.py                # Portal Robot flow, drives the B601-DM follower
-├── teleoperator.py         # Portal Operator flow, reBot 102 leader + recorder
-├── utils/                  # hardware builders, rerun blueprint, hotkeys, recorder
-├── policies/               # ACT + Diffusion: inference.py / train.py / skypilot.yaml
+├── teleoperator.py         # Portal Operator flow, reBot 102 leader + recording
+├── hitl_recorder.py        # obs ring, action↔obs alignment, dataset recorder driver
+├── utils/                  # hardware builders, rerun blueprint, hotkeys, DatasetRecorder
+├── policies/               # ACT: inference.py / train.py / skypilot.yaml
 ├── scripts/                # deploy_to_robot.sh, deploy.rsyncignore
 └── tutorial/               # walkthrough of every Portal pattern used here
 ```
@@ -48,7 +49,7 @@ Requires `livekit-portal>=0.2.3` (the YAML loader and
 reBot 102 leader come from Seeed's lerobot plugins (`lerobot-robot-seeed-b601`,
 `lerobot-teleoperator-rebot-arm-102`) plus `motorbridge` /
 `motorbridge-smart-servo` on PyPI; `lerobot` itself is stock PyPI
-`lerobot[training]` (ACT/Diffusion import cleanly with no transformers).
+`lerobot[training]` (ACT imports cleanly with no transformers).
 
 ### Calibrate the arms
 
@@ -137,9 +138,7 @@ For cloud GPU runs, each algo ships a `skypilot.yaml`:
 sky launch policies/act/skypilot.yaml -e DATASET_REPO_ID=you/your-repo
 ```
 
-ACT and Diffusion train on whatever cameras the dataset has. Diffusion
-can additionally drop the arm camera with `DROP_ARM_CAMERA=true`
-(single-camera ablation, only meaningful if both were recorded).
+ACT trains on whatever cameras the dataset has.
 Checkpoints are saved every quarter of total steps to
 `/outputs/<RUN_NAME>/checkpoints/<NNNNNN>/pretrained_model/`.
 
@@ -151,10 +150,6 @@ running in the background:
 ```bash
 # Terminal 3: any machine with the LiveKit creds and the checkpoint.
 uv run policies/act/inference.py --checkpoint path/to/025000
-
-# or for Diffusion:
-uv run policies/diffusion/inference.py --checkpoint path/to/025000 \
-    --async-predict --num-inference-steps 20
 ```
 
 The policy starts disengaged. Press SPACE in the policy window to
@@ -172,15 +167,6 @@ policies/act/inference.py
   --no-temporal-ensemble           # execute full chunk before replanning
   --temporal-ensemble-coeff 0.01   # smoother (lower) vs more reactive (higher)
   --no-claim                       # don't auto-claim active operator
-
-policies/diffusion/inference.py
-  --checkpoint PATH                # or env DIFFUSION_CHECKPOINT
-  --num-inference-steps 20         # fewer denoising steps, faster, lower fidelity
-  --scheduler DDIM                 # override scheduler at inference
-  --async-predict                  # overlap forward pass with chunk dispatch
-  --blend                          # cross-fade between chunks (needs --async-predict)
-  --anchor-prefix 4                # constrain chunk start (needs --async-predict)
-  --no-claim
 ```
 
 ## Deploy to the robot host
