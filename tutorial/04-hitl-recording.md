@@ -60,35 +60,55 @@ Prefer `action.sender` over `op.active_operator()` for labelling.
 
 For training data we want one row per executed action, paired with
 the observation the operator was responding to. The action stream
-drives the writer:
+drives the writer. All of that plumbing — the observation ring
+buffer, the action↔obs pairing, the stale-obs guard, and the
+lazily-built dataset recorder — lives in one place, `HitlRecorder`
+in the top-level `hitl_recorder.py`. The teleoperator's Portal
+callbacks shrink to feeders:
 
 ```python
-obs_history: deque[Observation] = deque(maxlen=16)
+# teleoperator.py
+hitl = HitlRecorder(...)
 
 def on_observation(obs):
-    obs_history.append(obs)
-    # ...
+    # ... update the rerun mirror ...
+    hitl.observe(obs)        # stamps local receive time, appends to ring
 
 def on_action(action):
-    if not recorder.is_recording:
+    hitl.record(action)      # pairs with an obs, writes one row
+```
+
+`observe` appends each observation to a bounded ring together with
+the local wall-clock time it *arrived*. `record` does the pairing:
+
+```python
+# hitl_recorder.py
+def record(self, action):
+    if not self._recorder.is_recording:
         return
 
-    # Find the obs the operator was responding to. Policies pass
-    # `in_reply_to_ts_us`; the leader doesn't, so fall back to the
-    # action's own send timestamp as an approximation.
-    target_ts = action.in_reply_to_ts_us or action.timestamp_us
+    # Two operators, two clocks. A policy passes `in_reply_to_ts_us`,
+    # the robot-clock capture time of the exact obs it consumed, so we
+    # match against each obs's capture timestamp (same clock, exact).
+    # The leader passes nothing: the human reacts to whatever obs they
+    # were *looking at*, so we match the action's teleop send time
+    # against each obs's local *receive* time (both teleop clock).
+    match_on_recv = action.in_reply_to_ts_us is None
+    target_ts = action.timestamp_us if match_on_recv else action.in_reply_to_ts_us
 
-    aligned = None
-    for o in reversed(obs_history):
-        if o.timestamp_us <= target_ts:
-            aligned = o
+    aligned, age = None, 0
+    for obs, recv_us in reversed(self._history):
+        obs_ts = recv_us if match_on_recv else obs.timestamp_us
+        if obs_ts <= target_ts:
+            aligned, age = obs, target_ts - obs_ts
             break
     if aligned is None:
         return  # episode start, no obs old enough yet
-    if target_ts - aligned.timestamp_us > MAX_OBS_AGE_US:
-        return  # synchronization stalled, would mislabel
+    if age > self._max_obs_age_us:
+        self.skipped_frames += 1
+        return  # obs stream stalled, would mislabel
 
-    recorder.push_frame(_obs_to_record(aligned), dict(action.values))
+    self._recorder.push_frame(self._obs_to_record(aligned), dict(action.values))
 ```
 
 What this gives:
@@ -101,37 +121,43 @@ What this gives:
   was looking at, not whatever happened to be in `latest_obs` at
   write time.
 - Stale-stream rejection. If the obs stream stalls relative to the
-  action stream, the threshold check catches it instead of silently
-  recording a wrong pair.
-- Episode boundaries clean. `obs_history.clear()` on `start_episode`
-  ensures the first row of a new episode pairs against an obs from
+  action stream, the threshold check catches it (and bumps a skip
+  counter the loop surfaces every 5s) instead of silently recording
+  a wrong pair.
+- Episode boundaries clean. `HitlRecorder.start_episode()` clears the
+  ring, so the first row of a new episode pairs against an obs from
   inside the episode, not from before.
 
-## Why a simple "find newest obs ≤ target_ts" works here
+## Why matching on the right clock matters
 
-It looks fragile but it isn't, given the YAML flags above. Walk the
-timing:
+The pairing looks fragile — just "newest obs at or before the
+target" — but it's robust because each operator is matched on a clock
+where the comparison is skew-free.
 
-```
-obs(T) at teleop      ≈ T + RTT_tr/2 + small_smoothing
-action(T) at teleop   = T + RTT_pr + D_policy_sync + T_inf + RTT_tr/2
-```
+Policy actions carry `in_reply_to_ts_us`, the robot-clock capture
+time of the exact obs the policy consumed. Matching that against each
+obs's capture timestamp (`obs.timestamp_us`, the same robot clock)
+names the precise obs — no estimation.
 
-With `reuse_stale_frames: true`, the synchronizer doesn't wait for a
-matching frame, so `small_smoothing` at both operators is tiny and
-roughly equal (`D_policy_sync` ≈ `small_smoothing` since both run
-the same YAML). The difference between action arrival and obs
-arrival reduces to `RTT_pr + T_inf`, always positive: the action
-always lands after the obs it references.
+Leader actions are open-loop: the human reacts to whatever obs they
+were *looking at*, i.e. the most recently received one. So we compare
+the action's teleop send time against each obs's local *receive* time
+— both on the teleop clock. Comparing the leader's teleop send time
+against the obs's robot-clock capture timestamp instead would fold in
+the robot/teleop clock offset plus the full transport latency,
+inflating every gap and tripping the threshold even when nothing is
+misaligned.
 
-The only residual case is state-packet jitter on the teleop's wire
-specifically (the data channel is reliable but not infinitely so).
-That's what the `MAX_OBS_AGE` threshold is for: catch the rare
-mis-ordered pair and drop it rather than write a wrong row.
+`reuse_stale_frames: true` keeps the obs receive stream dense and
+roughly tick-paced, so "newest received obs ≤ send time" lands on the
+frame the operator actually saw. The `MAX_OBS_AGE` threshold then
+measures only how stale that view was: when the obs stream the
+operator was watching genuinely stalls, the row is dropped and
+counted rather than mislabelled.
 
 Without `reuse_stale_frames`, sync would block on missing frames and
 those bounds break down; a dual-buffer pending-action queue would be
-needed. With it on, the simple lookup is the right tool.
+needed. With it on, the receive-time lookup is the right tool.
 
 ## Why not drive from on_observation
 
@@ -177,16 +203,22 @@ hardware.
 
 ## What the recorder does
 
-`utils/recorder.py` wraps `LeRobotDataset` with three things:
+Recording is split in two layers. `HitlRecorder` (top-level
+`hitl_recorder.py`) is the Portal-aware layer covered above: it owns
+the obs ring, the action↔obs alignment, and the lazy build. Underneath,
+`DatasetRecorder` in `utils/recorder.py` wraps `LeRobotDataset` with
+three things:
 
 - Off-thread `save_episode`. The hot path never blocks on parquet or
   video encoding.
 - Resume. If `data/<repo_id>/meta/tasks.parquet` exists, reuse the
   dataset and append. Otherwise create.
-- `start_episode` / `end_episode` / `discard_episode` toggled by `r`
-  and `[`.
+- `start_episode` / `end_episode` / `discard_episode`, which
+  `HitlRecorder` forwards from the `r` and `[` hotkeys.
 
-It is intentionally not Portal-aware. Hand it `observation` and
-`action` as flat dicts; it shapes them into a `LeRobotDataset` frame.
+`DatasetRecorder` is intentionally not Portal-aware. Hand it
+`observation` and `action` as flat dicts; it shapes them into a
+`LeRobotDataset` frame. The flat-dict conversion (decoding camera
+frames to ndarrays) is `HitlRecorder._obs_to_record`.
 
 Next: [05. Handoff](05-handoff.md).

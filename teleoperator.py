@@ -2,7 +2,10 @@
 
 Hardware lives in ``utils/rebot.py``. Rerun blueprint and per-tick
 log helpers live in ``utils/rerun_view.py``. The hotkey listener lives
-in ``utils/hotkeys.py``. The recorder lives in ``utils/recorder.py``.
+in ``utils/hotkeys.py``. The recording pipeline — obs ring, action↔obs
+alignment, and the stale-obs guard — lives in ``HitlRecorder``
+(``hitl_recorder.py``), above the ``DatasetRecorder`` in
+``utils/recorder.py``.
 
 Two YAML knobs (set in ``portal.yaml``) carry the wire-quality
 contract for this side:
@@ -54,7 +57,6 @@ import logging
 import os
 import pathlib
 import time
-from collections import deque
 from typing import Optional
 
 import numpy as np
@@ -69,9 +71,9 @@ from livekit.portal import (
 )
 
 from _common import env_int, env_str, load_env, mint_token, pace, required_env
+from hitl_recorder import HitlRecorder
 from utils.hotkeys import Hotkeys
 from utils.rebot import CAMERAS, build_leader
-from utils.recorder import DatasetRecorder, build_from_frame
 from utils.rerun_view import (
     build_blueprint,
     log_action,
@@ -84,17 +86,6 @@ IDENTITY = "teleoperator"
 CONFIG_PATH = pathlib.Path(__file__).parent / "portal.yaml"
 
 logger = logging.getLogger(__name__)
-
-
-def _obs_to_record(obs: Observation) -> dict:
-    """Reconstitute the recorder's flat observation dict from a synced
-    ``Observation``: state scalars + decoded RGB ndarrays per camera."""
-    out: dict = dict(obs.state)
-    for cam in CAMERAS:
-        f = obs.frames.get(cam)
-        if f is not None:
-            out[cam] = frame_bytes_to_numpy_rgb(f.data, f.width, f.height)
-    return out
 
 
 async def cycle_active_operator(op: Operator, me: str | None) -> None:
@@ -135,25 +126,27 @@ async def main() -> None:
     state_field_names = [f.name for f in cfg.state_schema]
     action_field_names = [f.name for f in cfg.action_schema]
 
-    # Latest synced observation for the rerun mirror and recorder
-    # construction. Both are written by Portal callbacks (already on the
-    # asyncio loop) and read on the main tick. One-writer / one-reader.
+    # Latest synced observation for the rerun mirror. Written by Portal
+    # callbacks (already on the asyncio loop) and read on the main tick.
+    # One-writer / one-reader.
     latest_obs: Optional[Observation] = None
     latest_state: dict = {}
     latest_frames: dict[str, np.ndarray] = {}
     latest_executed: Optional[Action] = None
 
-    # Ring buffer of recent observations as (obs, local_recv_us) pairs.
-    # local_recv_us is this machine's wall clock when the obs arrived, so
-    # leader actions can be matched against when the operator *saw* an obs
-    # (teleop clock) rather than when the robot *captured* it (robot clock).
-    # Sized for ~500ms of history at 30Hz: enough to align an action against
-    # the obs the operator was responding to even with sync jitter, but
-    # bounded so memory doesn't grow during a long session.
-    obs_history: deque[tuple[Observation, int]] = deque(maxlen=16)
-    skipped_frames = 0
-
-    recorder: Optional[DatasetRecorder] = None
+    # The recording pipeline — obs ring buffer, action↔obs alignment, the
+    # stale-obs guard, and the lazily-built dataset recorder — all live in
+    # HitlRecorder. The callbacks below just feed it.
+    hitl = HitlRecorder(
+        fps=fps,
+        state_field_names=state_field_names,
+        action_field_names=action_field_names,
+        cameras=CAMERAS,
+        max_obs_age_us=max_obs_age_us,
+        repo_id=env_str("PORTAL_HITL_DATASET_REPO_ID", "local/portal-hitl"),
+        task=env_str("PORTAL_HITL_DATASET_TASK", "reBot B601 manipulation"),
+        root=os.environ.get("PORTAL_HITL_DATASET_ROOT") or None,
+    )
 
     def on_observation(obs: Observation) -> None:
         nonlocal latest_obs, latest_state
@@ -163,55 +156,14 @@ async def main() -> None:
             f = obs.frames.get(cam)
             if f is not None:
                 latest_frames[cam] = frame_bytes_to_numpy_rgb(f.data, f.width, f.height)
-        # Stamp arrival on this machine's clock; on_observation fires on
-        # receipt, so time.time() here is the obs's local receive time.
-        obs_history.append((obs, int(time.time() * 1_000_000)))
+        hitl.observe(obs)
 
     def on_action(action: Action) -> None:
         # The action stream drives the recorder. One action = one row,
         # paired with the obs the operator was responding to.
-        nonlocal latest_executed, skipped_frames
+        nonlocal latest_executed
         latest_executed = action
-
-        if recorder is None or not recorder.is_recording:
-            return
-
-        # Pick the reference timestamp and the obs clock to compare it against:
-        #   * Policy actions carry `in_reply_to_ts_us`, a robot-clock capture
-        #     time naming the exact obs the policy consumed. Match on the obs
-        #     capture timestamp (same clock) — an exact, skew-free pairing.
-        #   * Leader actions are open-loop: the human reacts to whatever obs
-        #     they were *looking at*, i.e. the most recently *received* one.
-        #     Match the action's teleop send time against each obs's local
-        #     receive time (both teleop clock). This avoids the robot/teleop
-        #     clock skew and the baseline transport latency that comparing a
-        #     teleop send time against a robot capture time would fold in, so
-        #     the age below measures how stale the operator's view was — not
-        #     the link RTT.
-        match_on_recv = action.in_reply_to_ts_us is None
-        target_ts = action.timestamp_us if match_on_recv else action.in_reply_to_ts_us
-
-        aligned: Observation | None = None
-        age = 0
-        for obs, recv_us in reversed(obs_history):
-            obs_ts = recv_us if match_on_recv else obs.timestamp_us
-            if obs_ts <= target_ts:
-                aligned = obs
-                age = target_ts - obs_ts
-                break
-        if aligned is None:
-            return  # episode start, no obs old enough yet
-
-        if age > max_obs_age_us:
-            skipped_frames += 1
-            return  # observation stream stalled; would mislabel the row
-
-        recorder.push_frame(
-            _obs_to_record(aligned),
-            {k: float(v) for k, v in action.values.items()},
-        )
-        for err in recorder.poll_errors():
-            print(f"[teleop] recorder error: {err}")
+        hitl.record(action)
 
     op.on_observation(on_observation)
     op.on_action(on_action)
@@ -243,22 +195,17 @@ async def main() -> None:
                 if key == "c":
                     await cycle_active_operator(op, me)
                 elif key == "r":
-                    if recorder is None:
+                    if not hitl.is_ready:
                         print("[teleop] waiting for first observation before recording")
-                    elif recorder.is_recording:
-                        recorder.end_episode()
-                        print(f"[teleop] episode {recorder.episode_count - 1} saving in background")
+                    elif hitl.is_recording:
+                        hitl.end_episode()
+                        print(f"[teleop] episode {hitl.episode_count - 1} saving in background")
                     else:
-                        # Reset the obs ring before starting so the first
-                        # row of the new episode pairs against an obs from
-                        # within the episode, not from before.
-                        obs_history.clear()
-                        skipped_frames = 0
-                        recorder.start_episode()
-                        print(f"[teleop] episode {recorder.episode_count} recording")
+                        hitl.start_episode()
+                        print(f"[teleop] episode {hitl.episode_count} recording")
                 elif key == "[":
-                    if recorder is not None:
-                        recorder.discard_episode()
+                    if hitl.is_ready:
+                        hitl.discard_episode()
                         print("[teleop] episode discarded")
                 elif key == "x":
                     quit_requested = True
@@ -271,44 +218,33 @@ async def main() -> None:
             op.send_action(leader.get_action(), timestamp_us=int(time.time() * 1_000_000))
 
             # Lazy-build the recorder once we know the wire camera
-            # resolution. The YAML doesn't pin width/height; the
-            # follower's camera config does.
-            if recorder is None and len(latest_frames) >= len(CAMERAS):
-                recorder = build_from_frame(
-                    repo_id=env_str("PORTAL_HITL_DATASET_REPO_ID", "local/portal-hitl"),
-                    fps=fps,
-                    state_field_names=state_field_names,
-                    action_field_names=action_field_names,
-                    cameras=CAMERAS,
-                    frame=latest_frames[CAMERAS[0]],
-                    task=env_str("PORTAL_HITL_DATASET_TASK", "reBot B601 manipulation"),
-                    root=os.environ.get("PORTAL_HITL_DATASET_ROOT") or None,
-                )
-                print(f"[teleop] recorder ready (episodes so far={recorder.episode_count})")
+            # resolution (the YAML doesn't pin width/height).
+            if not hitl.is_ready and len(latest_frames) >= len(CAMERAS):
+                if hitl.ensure_recorder(latest_frames[CAMERAS[0]]):
+                    print(f"[teleop] recorder ready (episodes so far={hitl.episode_count})")
 
             # Mirror to rerun. Reads the latest snapshots; rerun is a
             # visualization, not the dataset, so duplicate frames at
             # tick rate don't matter.
             log_observation(latest_obs, latest_state, latest_frames)
             log_action(latest_executed, me)
-            log_recording(recorder)
+            log_recording(hitl)
             if tick % fps == 0 and (m := op.metrics()) is not None:
                 log_metrics(m)
 
             # Periodic skip surface: every 5s, report and reset.
-            if tick % (fps * 5) == 0 and skipped_frames > 0:
-                print(f"[teleop] skipped {skipped_frames} frames in last 5s (obs older than {max_obs_age_us // 1000}ms)")
-                skipped_frames = 0
+            if tick % (fps * 5) == 0 and hitl.skipped_frames > 0:
+                n = hitl.drain_skips()
+                print(f"[teleop] skipped {n} frames in last 5s (obs older than {max_obs_age_us // 1000}ms)")
 
     except KeyboardInterrupt:
         print("\n[teleop] stopping ...")
     finally:
         hotkeys.stop()
-        if recorder is not None:
-            try:
-                recorder.finalize()
-            except Exception:
-                logger.exception("recorder.finalize failed")
+        try:
+            hitl.finalize()
+        except Exception:
+            logger.exception("recorder.finalize failed")
         try:
             await op.disconnect()
         finally:
