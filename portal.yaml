@@ -1,0 +1,62 @@
+# Wire contract shared by all three peers: `robot`, `teleoperator`, `recorder`.
+# Every key here is documented in docs/configuration.md#portalyaml -- including
+# what is deliberately absent, and why the two mandatory h264 keys are not
+# tuning. Identity (session, role) is supplied at the call site, so the same
+# file is reusable across every process.
+#
+# Hardware = Seeed reBot Arm B601-DM: 6 arm joints plus a gripper, all
+# absolute position-controlled in degrees at the lerobot boundary.
+
+version: 1
+
+fps: 30 # observation rate
+
+# Synchronizer pacing, both in tick intervals. Nothing in this repo consumes
+# that path -- the recorder subscribes to the raw streams -- so these shape
+# only `metrics().sync` and any `on_observation` consumer, the test peers
+# included. Left at the Portal defaults.
+# slack: 10
+# tolerance: 1.5
+
+# A state sample with no fresh frame in the window reuses the last good frame
+# rather than dropping the state.
+reuse_stale_frames: true
+
+# One RGB camera, arm-mounted at the wrist, as a USB/V4L2 OpenCV device. Every
+# declared track MUST actually publish: the teleoperator withholds its anchor
+# until every camera has produced a frame, so with one track silent no action
+# carries an `in_reply_to_ts_us` and the recorder can place none of them. An
+# overhead camera therefore comes back by adding its track here AND setting
+# `B601_CAM_OVERHEAD`, not by doing either alone.
+#
+# h264 rides WebRTC media, so video never competes with `portal_state` and
+# degrades by dropping rather than queueing -- the lowest-latency option, and
+# teleop is bounded by latency. `max_bitrate_kbps` is a peak ceiling (10 Mbps
+# if omitted) and `screencast: true` sets MAINTAIN_RESOLUTION; without it
+# libwebrtc RESCALES under pressure and leaves the dataset with mixed
+# geometry, discovered at training time. The cost is P-frame artifacts, which
+# mjpeg does not have -- see docs/configuration.md#codec-choice for that trade
+# and why mjpeg's reliable-channel transport can starve state.
+videos:
+  - { name: arm_camera, codec: h264, max_bitrate_kbps: 20000, screencast: true }
+
+# 7 absolute joint positions (6 arm joints + gripper), in the B601 follower's
+# native order.
+state:
+  - { name: shoulder_pan.pos, dtype: f32 }
+  - { name: shoulder_lift.pos, dtype: f32 }
+  - { name: elbow_flex.pos, dtype: f32 }
+  - { name: wrist_flex.pos, dtype: f32 }
+  - { name: wrist_yaw.pos, dtype: f32 }
+  - { name: wrist_roll.pos, dtype: f32 }
+  - { name: gripper.pos, dtype: f32 }
+
+# Action mirrors state. The reBot 102 leader emits one of these per tick.
+action:
+  - { name: shoulder_pan.pos, dtype: f32 }
+  - { name: shoulder_lift.pos, dtype: f32 }
+  - { name: elbow_flex.pos, dtype: f32 }
+  - { name: wrist_flex.pos, dtype: f32 }
+  - { name: wrist_yaw.pos, dtype: f32 }
+  - { name: wrist_roll.pos, dtype: f32 }
+  - { name: gripper.pos, dtype: f32 }

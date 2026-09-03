@@ -1,0 +1,30 @@
+# Secrets. Anything matching .env* except the committed example.
+.env
+.env.*
+!.env.example
+
+# Session archives. `uv run recorder` writes data/sessions/*.rrd by
+# default (override with PORTAL_DATA_RRD_DIR). Roughly 0.3 GB/hour per
+# camera, so keep them out of git.
+/data/
+
+# Scratch / vendored reference clones (e.g. tmp/molmoact2).
+/tmp/
+
+# uv / Python.
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+
+# Lint / type-check caches.
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
+# IDE / OS.
+.vscode/
+.idea/
+.DS_Store
+.claude/

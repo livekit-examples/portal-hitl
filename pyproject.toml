@@ -1,0 +1,59 @@
+[project]
+name = "portal-rebot"
+version = "0.1.0"
+description = "Teleop data collection on top of livekit-portal. A Seeed reBot Arm B601-DM (6-DOF + gripper) follower driven by a remote operator with a reBot 102 leader; a third, listen-only operator records state, video and actions to one aligned .rrd timeline."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "livekit-portal>=0.2.5",
+    "livekit-api>=0.7",
+    # Stock PyPI lerobot, for the hardware drivers only:
+    #   rebot    - the reBot Arm B601-DM follower and reBot 102 leader
+    #              drivers, plus their motorbridge / motorbridge-smart-servo
+    #              backends. Both arms ship upstream as of lerobot 0.6.0, so
+    #              the out-of-tree lerobot-robot-seeed-b601 and
+    #              lerobot-teleoperator-rebot-arm-102 plugins are no longer
+    #              needed. See https://wiki.seeedstudio.com/rebot_arm_b601_dm_lerobot/
+    #   hardware - camera and motor bus backends.
+    #   training - the dataset stack (datasets/pandas/pyarrow/torchcodec).
+    #              Not used by any of the three live processes -- the recorder
+    #              writes an .rrd -- but `rrd-converter` turns those archives
+    #              into a LeRobotDataset offline, and that is where it lands.
+    # We avoid the VLA extras (and their transformers pin) entirely.
+    "lerobot[training,rebot,hardware]>=0.6.1",
+    "rerun-sdk>=0.36",
+    "numpy>=1.24",
+    "python-dotenv>=1",
+    "opencv-python>=4.5",
+    "pynput>=1.7",
+    # Reading an .rrd back. Rerun dropped the lighter `rerun.dataframe` reader
+    # in 0.34, so the way in is a local server over the file, and that needs
+    # datafusion. `rrd-converter` is the reason it is not a dev dependency.
+    "datafusion>=54",
+]
+
+[dependency-groups]
+dev = []
+
+# One package, three peers plus an offline tool. Each is installed as a console script, so `uv run
+# robot` / `uv run teleoperator` / `uv run recorder` work from anywhere in the
+# repo; `python -m portal_rebot.robot` is the same entry point. `robot` drives
+# the arm, `teleoperator` drives the human's leader arm, and `recorder` is a
+# listen-only operator that writes the session archive. The wire contract is
+# `portal.yaml` at the repo root. Read the three `__main__.py` files
+# top-to-bottom, they are the example. `rrd-converter` is not a peer: it runs
+# after the fact, turning session archives into a LeRobot v3 dataset.
+[project.scripts]
+robot = "portal_rebot.robot.__main__:run"
+teleoperator = "portal_rebot.teleoperator.__main__:run"
+recorder = "portal_rebot.recorder.__main__:run"
+rrd-converter = "portal_rebot.convert.__main__:run"
+
+[build-system]
+requires = ["uv_build>=0.9,<0.10"]
+build-backend = "uv_build"
+
+# Flat layout: the package sits at the repo root next to `portal.yaml`, which
+# `common.py` resolves one level up from itself.
+[tool.uv.build-backend]
+module-name = "portal_rebot"
+module-root = ""
