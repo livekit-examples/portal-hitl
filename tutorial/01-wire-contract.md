@@ -1,7 +1,7 @@
 # 1. The wire contract
 
-Every peer in a Portal session (the robot, the human teleoperator, any
-policy) needs to agree on the same wire contract: fps, video tracks,
+Every peer in a Portal session (the robot, the human teleoperator, the
+recorder, any policy) needs to agree on the same wire contract: fps, video tracks,
 state schema, action schema. If two peers disagree on any of these,
 their packets are dropped at the receiver with a fingerprint warning.
 
@@ -33,8 +33,8 @@ action:
 
 ## Loading per role
 
-Three peers, three roles. Each loads the same YAML and supplies its
-role at the call site:
+Three roles. Each peer loads the same YAML and supplies its role at the
+call site:
 
 ```python
 # robot.py
@@ -44,26 +44,30 @@ cfg = RobotConfig.from_yaml_file("portal.yaml", room)
 # teleoperator.py and policies/<algo>/inference.py
 from livekit.portal import OperatorConfig
 cfg = OperatorConfig.from_yaml_file("portal.yaml", room)
+
+# recorder.py
+from livekit.portal import ObserverConfig
+cfg = ObserverConfig.from_yaml_file("portal.yaml", room)
 ```
 
 Identity (the LiveKit room name and your participant identity) is
 never in the YAML. It comes from environment variables and the JWT.
 That is what makes the same file reusable across robot, teleoperator,
-and policy processes.
+recorder and policy processes.
 
 ## Why YAML, not Python builders
 
-`PortalConfig` exposes `add_state_typed(...)`, `add_video(...)`,
-`add_action_chunk(...)` for building configs in code. The YAML loader
+`PortalConfig` exposes `add_state_typed(...)`, `add_action_typed(...)`,
+`add_video(...)` for building configs in code. The YAML loader
 is a thin wrapper that calls the same underlying methods. We pick YAML
 for two reasons:
 
 1. The schema is shared. If the robot and the operator drift in code,
    you find out at runtime by reading a fingerprint warning. With a
    single YAML file checked into the repo, drift is impossible.
-2. The schema is the dataset contract too. Keeping it in one declared
-   place makes `utils/recorder.py` easy: it just reads
-   `cfg.state_schema` and `cfg.action_schema` to derive feature names.
+2. The schema is the dataset contract too. The recorder writes it into
+   every archive, and `livekit-portal convert` names the dataset's state
+   and action columns after it, in declaration order.
 
 ## Schema rules worth knowing
 
@@ -73,8 +77,9 @@ for two reasons:
   `PortalError.DtypeMismatch` before the packet leaves the sender.
 - Adding a field is backwards-incompatible. All peers must update at
   once. There is no schema migration.
-- The dataset writer uses the YAML schema directly. If you add motor
-  currents on the wire, utils/recorder.py will pick them up the next run.
+- The dataset follows the YAML schema directly. If you add motor
+  currents on the wire, the next recordings and the datasets converted
+  from them carry them too.
 
 ## Picking a video codec
 
@@ -100,8 +105,9 @@ path and on-wire size differ.
 | File | Role |
 |---|---|
 | `portal.yaml` | the contract |
-| `robot.py` line ~25 | `RobotConfig.from_yaml_file(CONFIG_PATH, room)` |
-| `teleoperator.py` line ~55 | `OperatorConfig.from_yaml_file(CONFIG_PATH, room)` |
+| `robot.py` | `RobotConfig.from_yaml_file(CONFIG_PATH, room)` |
+| `teleoperator.py` | `OperatorConfig.from_yaml_file(CONFIG_PATH, room)` |
+| `recorder.py` | `ObserverConfig.from_yaml_file(CONFIG_PATH, room)` |
 | `policies/<algo>/inference.py` | same `OperatorConfig.from_yaml_file` |
 
 Next: [02. Robot loop](02-robot-loop.md).

@@ -1,8 +1,10 @@
-# Wire contract shared by robot.py, teleoperator.py, and policies/<algo>/inference.py.
+# Wire contract shared by robot.py, teleoperator.py, recorder.py, and
+# policies/<algo>/inference.py.
 #
 # Loaded via `RobotConfig.from_yaml_file(...)` and
-# `OperatorConfig.from_yaml_file(...)`. Identity (session, role) is supplied
-# at the call site so the same file is reusable across all three processes.
+# `OperatorConfig.from_yaml_file(...)` and `ObserverConfig.from_yaml_file(...)`.
+# Identity (session, role) is supplied at the call site so the same file is
+# reusable across every process.
 #
 # Hardware = Seeed reBot Arm B601-DM: a 6-DOF arm plus a gripper, 7
 # actuated joints total. All joints are absolute position-controlled
@@ -31,22 +33,23 @@ fps: 30 # observation rate
 slack: 10
 # tolerance: 1.5
 
-# When a state sample arrives at the operator's synchronizer with no
+# When a state sample arrives at an operator's synchronizer with no
 # fresh frame inside the sync window, reuse the last good frame instead
-# of dropping the state. We want every robot tick to land in the
-# dataset; a transient camera drop should not punch a hole in the
-# trajectory. The reused frame is at most a couple of ticks old.
-reuse_stale_frames: true
+# of dropping the state, so the teleop view and the policy keep ticking
+# through a transient camera drop. The reused frame is at most a couple
+# of ticks old. (The recorder doesn't sync; it stores raw streams.)
+stall_behavior: freeze
+max_lag_ms: 0
 
-# Operators receive the executed action stream over the wire. The
-# teleoperator needs this to record actions tagged with the correct
-# Action.sender during HITL handoff; the policies don't strictly need
-# it but pay a negligible bandwidth cost for being consistent.
-action_subscription: true
+# Which executed actions reach `on_action`. The teleoperator mirrors the
+# active operator's actions into its rerun view, whether they came from
+# the leader or a policy. The recorder is an observer and receives these
+# by default anyway.
+action_subscription: active
 
 # Two RGB cameras (arm-mounted + overhead), wired as USB/V4L2 OpenCV
 # devices. Every declared track MUST actually publish: with
-# reuse_stale_frames on, the synchronizer withholds observations until
+# stall_behavior: freeze, the synchronizer withholds observations until
 # every track has emitted at least once, so a declared-but-silent camera
 # stalls state and overflows the live track's buffer. The B601 also
 # supports RealSense/Orbbec depth cameras; switch the builders in

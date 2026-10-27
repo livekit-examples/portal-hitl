@@ -1,13 +1,15 @@
 [project]
 name = "portal-hitl"
 version = "0.1.0"
-description = "Human-in-the-loop teleop + recording on top of livekit-portal. A Seeed reBot Arm B601-DM (6-DOF + gripper) follower driven by a remote operator with a reBot 102 leader; the operator side records LeRobotDataset episodes and can hand off to a policy."
+description = "Human-in-the-loop teleop + recording on top of livekit-portal. A Seeed reBot Arm B601-DM (6-DOF + gripper) follower driven by a remote operator with a reBot 102 leader; an observer records the session and `livekit-portal convert` turns it into a LeRobotDataset; control can be handed off to a policy."
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "livekit-portal>=0.2.3",
+    # `rerun`: the recorder's RrdSink and the teleop's viewer.
+    # `lerobot`: `livekit-portal convert --output lerobotv3`.
+    "livekit-portal[rerun,lerobot]>=0.3.0",
     "livekit-api>=0.7",
     # Stock PyPI lerobot. The `training` extra pulls the dataset stack
-    # (datasets/pandas/pyarrow/torchcodec) the recorder + trainer need
+    # (datasets/pandas/pyarrow/torchcodec) the trainer needs
     # plus wandb/accelerate. We run ACT/Diffusion only; both import
     # cleanly from `lerobot.policies` and need no transformers, so we
     # avoid the VLA extras (and their transformers==5.3.0 pin) entirely.
@@ -20,7 +22,6 @@ dependencies = [
     "lerobot-teleoperator-rebot-arm-102>=0.2.0",
     "motorbridge>=0.3.9",
     "motorbridge-smart-servo>=0.0.4",
-    "rerun-sdk>=0.26",
     "numpy>=1.24",
     "python-dotenv>=1",
     "opencv-python>=4.5",

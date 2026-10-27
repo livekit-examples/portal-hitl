@@ -76,11 +76,8 @@ def log_action(action, me: str | None) -> None:
         pass
 
 
-def log_recording(recorder) -> None:
+def log_recording(recording: bool) -> None:
     try:
-        rr.log(
-            "recording/active",
-            rr.Scalars(float(recorder.is_recording if recorder else 0.0)),
-        )
+        rr.log("recording/active", rr.Scalars(float(recording)))
     except Exception:
         pass

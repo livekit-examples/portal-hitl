@@ -16,7 +16,7 @@ op = Operator(cfg)
 ```
 
 `Operator` is the role-pinned facade for `Role.OPERATOR`. It exposes
-the publishing methods (`send_action`, `send_action_chunk`) and the
+the publishing methods (`send_action`, `send_keypoint`) and the
 receiving callbacks (`on_observation`, `on_state`, `on_video_frame`,
 `on_drop`).
 
@@ -56,9 +56,17 @@ Send one action per tick, as a dict matching the YAML action schema:
 
 ```python
 async for tick in pace(fps):
-    ts_us = int(time.time() * 1_000_000)
-    op.send_action(leader.get_action(), timestamp_us=ts_us)
+    op.send_action(
+        leader.get_action(),
+        in_reply_to_ts_us=latest_obs.timestamp_us if latest_obs else None,
+    )
 ```
+
+`in_reply_to_ts_us` names the observation the human was looking at when
+they moved, so the recording can pair the action with exactly those
+frames (see [04. HITL recording](04-hitl-recording.md)). The action's
+own timestamp defaults to the robot's clock, which Portal keeps in sync
+on every peer.
 
 `send_action` is sync and fire-and-forget. Validation runs before the
 packet leaves the sender (wrong dtype raises). Whether the robot

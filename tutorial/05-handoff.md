@@ -65,8 +65,9 @@ When the robot's gate sees an inbound action:
 
 1. Read sender identity from the packet metadata.
 2. Compare to the local active-operator pointer.
-3. If they match, deliver to `on_action` (and to subscribed operators,
-   see [04. HITL recording](04-hitl-recording.md)).
+3. If they match, deliver to `on_action` (and to subscribed operators
+   and observers, such as the recorder in
+   [04. HITL recording](04-hitl-recording.md)).
 4. If they don't, drop. No callback fires.
 
 The pointer is sticky across disconnect. If the active operator drops
@@ -89,8 +90,8 @@ observation-to-action delay end to end, including transport and sync
 buffering. Network RTT alone tells you nothing about whether the
 policy is actually keeping up.
 
-The teleoperator does not pass `in_reply_to_ts_us` because the leader
-arm produces actions independently of the observation stream. The
-policies do, because their actions are responses to observations.
+The teleoperator passes it too, with the newest observation on screen
+when the human moved. For the leader that is mostly for the recording:
+it tells the converter which frames each action answered.
 
 Next: [06. Plugging in a policy](06-plugging-in-policies.md).

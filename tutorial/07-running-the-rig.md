@@ -23,8 +23,8 @@ cp .env.example .env       # fill in LIVEKIT_*, serial/CAN ports, camera devices
 uv sync
 ```
 
-Requires `livekit-portal>=0.2.3` (the YAML loader and
-`set_action_subscription` both landed post-0.2.0). The B601 follower and
+Requires `livekit-portal>=0.3.0`, with the `rerun` extra for the
+recorder and the `lerobot` extra for `livekit-portal convert`. The B601 follower and
 reBot 102 leader come from Seeed's lerobot plugins (`lerobot-robot-seeed-b601`,
 `lerobot-teleoperator-rebot-arm-102`) plus `motorbridge` /
 `motorbridge-smart-servo` on PyPI; `lerobot` itself is stock PyPI
@@ -58,15 +58,18 @@ Linux: `ls /dev/serial/by-id/` and `ls /dev/tty{ACM,USB}*` for the arms,
 
 ## Collect data
 
-Two terminals, two processes. Robot and teleop must connect to the same
-LiveKit room:
+Three terminals, three processes, all in the same LiveKit room:
 
 ```bash
 # Terminal 1: physical B601-DM host.
 uv run robot.py
 # Waits for camera frames + CAN bus, prints "connected" when ready.
 
-# Terminal 2: human operator's machine, with the reBot 102 leader.
+# Terminal 2: anywhere with the LiveKit creds, usually the operator's machine.
+uv run recorder.py
+# Waits for the robot's clock, then prints the .rrd path it records to.
+
+# Terminal 3: human operator's machine, with the reBot 102 leader.
 uv run teleoperator.py
 # Spawns rerun, prints hotkey help.
 ```
@@ -76,27 +79,48 @@ Once both are connected, on the teleoperator window:
 | Key | Action |
 |---|---|
 | `c` | Toggle active operator between human (self) and policy. The arm only moves when an operator is active. |
-| `r` | Toggle episode recording. |
-| `[` | Discard the in-flight episode without saving. |
+| `r` | Start an episode (`recording` keypoint), or end it (`idle`). |
+| `[` | Discard the in-flight episode (`discard` keypoint). |
 | `x` | Clean quit. |
 
 A typical recording session:
 
 ```
-(robot.py and teleoperator.py both running, no operator active)
+(robot.py, recorder.py and teleoperator.py running, no operator active)
 press c        → arm follows the leader
 move arm to start position
-press r        → episode recording starts
+press r        → episode starts
 perform task
-press r        → episode ends, saves in background
-... repeat ...
-press x        → quit, finalizes any in-flight save
+press r        → episode ends
+... repeat; press [ instead to throw a bad take away ...
+press x        → quit teleop; ctrl-c the recorder to close its archive
 ```
 
-Episodes land in `data/<repo_id>/` (default `data/local/portal-hitl/`).
-Override with `PORTAL_HITL_DATASET_REPO_ID` and `PORTAL_HITL_DATASET_ROOT`.
-The recorder resumes if a dataset already exists, so a long-running
-corpus can be collected across multiple sessions.
+The hotkeys follow the keypoint convention `livekit-portal convert`
+reads: `recording` with a `{"task_description": ...}` payload opens an
+episode, `idle` closes it, `discard` drops it. The task is
+`PORTAL_HITL_TASK` from `.env`. See
+[04. HITL recording](04-hitl-recording.md#mark-episodes-with-keypoints).
+
+The recorder writes one `.rrd` per run to `data/recordings/` (override
+with `PORTAL_HITL_RECORDING_DIR`). Watch any of them back with
+`rerun data/recordings/<file>.rrd`.
+
+## Build the dataset
+
+Convert every archive into one `LeRobotDataset`:
+
+```bash
+uv run livekit-portal convert data/recordings --output lerobotv3 --dry-run   # look first
+uv run livekit-portal convert data/recordings --output lerobotv3 \
+    --repo-id local/portal-hitl --robot-type seeed_b601_dm_follower
+```
+
+The dataset lands in `data/local/portal-hitl/`. Pass `--repo-id
+you/your-recording-repo --push` to upload it to the Hugging Face Hub
+(log in with `hf auth login` first), and `--overwrite` to rebuild it
+after recording more sessions. Keep the archives: they're the source of
+truth, and you can convert them again with different options any time.
 
 ## Train a policy
 
@@ -184,7 +208,7 @@ What gets synced and what doesn't:
 |---|---|
 | Source code, `portal.yaml`, `pyproject.toml`, `uv.lock` | `.git`, `.venv`, Python caches |
 | `.env` (so the robot inherits LIVEKIT and port config) | `.env.local` (each machine keeps its own overrides) |
-| `policies/` source | `data/`, `checkpoints/`, `outputs/` (operator/GPU side only) |
+| `policies/` source | `data/`, `checkpoints/`, `outputs/` (recordings, datasets and checkpoints stay off the robot) |
 
 After the rsync, on the robot:
 
@@ -204,14 +228,14 @@ exclusions.
 
 ## Where to put each process
 
-The three Portal peers (robot, teleop, policy) can run on the same
-machine or different ones. Common splits:
+The four Portal peers (robot, recorder, teleop, policy) can run on the
+same machine or different ones. Common splits:
 
-| | robot.py | teleoperator.py | policies/<algo>/inference.py |
-|---|---|---|---|
-| Single machine demo | localhost | localhost | localhost |
-| Remote teleop, local policy | B601-DM host | operator desk | operator desk |
-| Cloud policy | B601-DM host | operator desk | cloud GPU box |
+| | robot.py | recorder.py | teleoperator.py | policies/<algo>/inference.py |
+|---|---|---|---|---|
+| Single machine demo | localhost | localhost | localhost | localhost |
+| Remote teleop, local policy | B601-DM host | operator desk | operator desk | operator desk |
+| Cloud policy | B601-DM host | operator desk or a server | operator desk | cloud GPU box |
 
 LiveKit handles the wire in all cases. The `portal.yaml` does not
 hardcode IPs; only `LIVEKIT_URL` does, and that's an env var.
@@ -220,6 +244,6 @@ hardcode IPs; only `LIVEKIT_URL` does, and that's an env var.
 
 And that's the whole loop, end to end. We started from a shared wire
 contract, brought up a robot that publishes synced observations, drove it
-with a human and a policy through the same operator interface, and
-recorded every correction into trainable data. Now it's yours; go build
+with a human and a policy through the same operator interface,
+recorded every correction, and turned the recordings into trainable data. Now it's yours; go build
 something with it.
