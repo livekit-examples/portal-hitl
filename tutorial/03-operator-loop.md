@@ -62,10 +62,10 @@ async for tick in pace(fps):
     )
 ```
 
-`in_reply_to_ts_us` names the observation the human was looking at when
-they moved, so the recording can pair the action with exactly those
-frames (see [04. HITL recording](04-hitl-recording.md)). The action's
-own timestamp defaults to the robot's clock, which Portal keeps in sync
+`in_reply_to_ts_us` names the latest synchronized observation. The recorder
+preserves this anchor so conversion can select state and frames at or before
+it, subject to a staleness limit (see [04. HITL recording](04-hitl-recording.md)).
+The action's own timestamp defaults to the robot's clock, which Portal keeps in sync
 on every peer.
 
 `send_action` is sync and fire-and-forget. Validation runs before the

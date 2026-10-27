@@ -1,18 +1,20 @@
 # Human-in-the-loop with LiveKit and Rebot B601
 
-This is a reference project on how to use
-[LiveKit Portal](https://github.com/livekit/portal). In this tutorial,
-we'll implement a human-in-the-loop training pipeline for the
+Build a human-in-the-loop training pipeline with
+[LiveKit Portal](https://github.com/livekit/portal) and the
 [Seeed reBot Arm B601-DM](https://wiki.seeedstudio.com/rebot_arm_b601_dm_lerobot/),
 a 6-DOF arm with a gripper and two cameras.
 
-You teleoperate the remote arm with a reBot 102 leader arm on your desk,
-and at any point you can hand control to a trained ACT policy. Everything
-that's executed, whether it came from your hand or the policy, is
-recorded by an observer, and `livekit-portal convert` turns the
-recordings into a `LeRobotDataset`. The full loop is: collect data by
-teleoperating, train a policy on it, then trade control back and forth
-while every correction lands back in the dataset.
+Teleoperate the remote arm with a reBot 102 leader arm on your desk, or hand
+control to a trained ACT policy. A separate observer records received state,
+frames, keypoints, and actions from the active operator. `livekit-portal convert`
+turns completed archives into a LeRobot v3 dataset. Recorded actions identify
+the sender and control status; measured robot state shows how the hardware
+responded.
+
+Collect demonstrations, train a policy, and trade control between the policy
+and the human operator. Convert the recorded corrections into data for the
+next training run.
 
 ## The tutorial
 

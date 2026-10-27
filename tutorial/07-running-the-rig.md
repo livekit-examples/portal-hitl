@@ -1,11 +1,8 @@
 # 7. Running the rig
 
-This page is here to get you from a freshly cloned repo to a working
-loop. The earlier pages built the rig up from the wire contract; this one
-is the runbook. We'll go through what you need, bring up the robot and
-teleop, collect a dataset, train a policy on it, and hand control back
-and forth. Read it top to bottom the first time. After that it's a
-reference you can jump around in.
+Set up the hardware, record demonstrations, build a dataset, and train a
+policy. Then run the policy alongside the teleoperator to collect human
+corrections. Follow the steps in order for your first session.
 
 ## What you need
 
@@ -14,7 +11,7 @@ reference you can jump around in.
   two USB cameras (arm-mounted, overhead).
 - A reBot 102 leader arm for teleop, on whichever machine runs
   `teleoperator.py`.
-- Python 3.12+, `uv`.
+- Python 3.12 and `uv` (`pyproject.toml` requires `>=3.12,<3.13`).
 
 ```bash
 git clone <this repo>
@@ -121,6 +118,19 @@ you/your-recording-repo --push` to upload it to the Hugging Face Hub
 (log in with `hf auth login` first), and `--overwrite` to rebuild it
 after recording more sessions. Keep the archives: they're the source of
 truth, and you can convert them again with different options any time.
+`--overwrite` replaces the output directory; conversion doesn't append rows.
+
+The dry run reports archive contents and checks schema compatibility without
+validating every output row. Conversion selects active actions by default,
+with observations up to 200 ms older than their anchors. Use
+`--max-stale-ms 0` for exact matches. Rows missing required observations are
+skipped. Discarded and unclosed takes are excluded; an archive with no start
+marker is treated as one episode.
+
+The dataset frame rate defaults to the robot's state rate. The converter
+writes one row per selected action with complete observations and doesn't
+resample or preserve gaps. See [One row per action](04-hitl-recording.md#one-row-per-action)
+before mixing human and policy streams with different action rates.
 
 ## Train a policy
 
@@ -175,9 +185,9 @@ policies/act/inference.py
 ```
 
 This is the full HITL loop: the policy drives, you catch the failures by
-pressing `c` to take over, and because recording never stopped every
-correction lands in the dataset as a labeled row. Retrain on it and the
-policy learns to recover from its own failure modes. The mechanics behind
+pressing `c` to take over, and the observer records your corrections with
+your sender identity. Convert the retained episodes, inspect the resulting
+data, and use it for the next training run. The mechanics behind
 the handoff are covered in [05. Handoff](05-handoff.md).
 
 ## Deploy to the robot host

@@ -1,26 +1,15 @@
 # 4. HITL recording
 
-Recording is the slightly subtle part. The naive version,
-`leader.get_action()` paired with `op.get_observation()` on every
-tick, fails in a few ways once you look closely:
-
-1. Tick rate beats observation arrival. Same `(obs, action)` row
-   written N times, bit-identical consecutive frames.
-2. Observations arrive faster than ticks. Some frames silently lost.
-3. Misaligned pairs. The recorded action was generated in response to
-   an observation different from the one stored next to it.
-4. Recording only works where the human is. If the teleoperator
-   process writes the dataset, a policy-only session records nothing.
-
-Portal avoids all four by splitting recording in two: record the raw
-session while it happens, and build the dataset afterwards.
+Record the session as raw streams, then build a training dataset offline.
+This separates storage and video encoding from the control loop and lets you
+change episode boundaries, action selection, or alignment without repeating
+data collection.
 
 ## Record with an observer
 
 An **observer** is a third Portal role next to robot and operator. It
-sees everything in the room (state, video, the actions the robot
-executes, keypoints) and never drives. `recorder.py` is one, and the
-whole file is little more than this:
+receives state, video, keypoints, and subscribed actions without sending
+commands to the robot. `recorder.py` uses this pattern:
 
 ```python
 # recorder.py
@@ -52,11 +41,12 @@ Three things make the archive trustworthy as training material:
   frames into observations the way an operator does, so no sample is
   dropped or reused to make a match. Each frame and each state sample is
   stored with its own timestamp. Pairing happens later, when you convert.
-- **Only executed actions, labelled.** By default an observer receives the
-  actions of the active operator, the ones the arm actually ran, each with
-  `Action.sender` stamped by the robot at its gate. Rows from the leader
-  and rows from a policy are told apart by sender, and a handoff can't
-  mislabel them.
+- **Actions carry sender and control status.** By default, the observer
+  receives actions from the active operator. `Action.sender` identifies the
+  source, and `Action.active` reflects the observer's control gate. These
+  fields don't confirm hardware execution; use measured robot state for that.
+  Set `cfg.set_action_subscription("all")` to also record inactive policy
+  actions for offline comparison.
 
 ## Mark episodes with keypoints
 
@@ -65,8 +55,8 @@ teleoperator does, so the `r` and `[` hotkeys send **keypoints**:
 `{type, payload}` annotations that the recorder stores on the same
 timeline.
 
-Portal itself attaches no meaning to a keypoint. This project follows
-the convention that `livekit-portal convert` reads to find episodes:
+Keypoints don't start or stop the archive writer. This project uses the
+converter's default episode markers:
 
 | Hotkey | Keypoint | Payload | Meaning to the converter |
 |---|---|---|---|
@@ -88,9 +78,10 @@ converter takes them as flags; see the
 [keypoint convention](https://github.com/livekit/portal/blob/main/docs/03-data-recording.md#keypoint-convention)
 in Portal's docs.
 
-`send_keypoint` returns the observers that received it. When that list
-is empty, the teleoperator warns you that no recorder is running, instead
-of letting you record a take into nothing.
+`send_keypoint` returns the observers present in the room. An empty list
+triggers a warning in the teleoperator. A non-empty list doesn't acknowledge
+receipt or persistence: an observer can be connected without an active sink.
+Wait for the recorder's output-path message before marking the first take.
 
 ## Answer the right observation
 
@@ -102,17 +93,22 @@ observation each action answered. Every operator says so with
 # policies/act/inference.py: the obs the policy consumed
 op.send_action(action, in_reply_to_ts_us=obs.timestamp_us)
 
-# teleoperator.py: the newest obs on screen when the human moved
+# teleoperator.py: the latest synchronized observation
 op.send_action(
     leader.get_action(),
     in_reply_to_ts_us=latest_obs.timestamp_us if latest_obs else None,
 )
 ```
 
-The recorder files each action under that timestamp. Pairing it with an
-observation is then a lookup on one clock: the state and frames the
-robot captured at that instant. There's no ring buffer, and no
-comparing a send time on one machine against a capture time on another.
+The recorder stores that anchor on `robot_time` and the action's send time
+on `action_time`. The second timeline preserves separate actions that answer
+the same observation. Actions without an anchor use their send timestamp on
+`robot_time`.
+
+This project anchors human actions to the latest synchronized observation.
+The policy anchors actions to the observation used for inference. Conversion
+uses the declared anchor; it doesn't infer which frame a human actually saw.
+Keypoints in this project use the default send time on the robot's clock.
 
 ## Build the dataset
 
@@ -124,10 +120,21 @@ uv run livekit-portal convert data/recordings --output lerobotv3 \
     --repo-id local/portal-hitl --robot-type seeed_b601_dm_follower
 ```
 
-It splits each archive into episodes at the keypoints above, drops
-discarded takes, and writes one row per executed action with the state
-and frames that action answered. Add `--push` to upload to the Hugging
-Face Hub, and `--dry-run` to see what each archive holds first. The full
+The converter selects actions marked active at the recorder's gate and reads
+them from `action_time`. For each action, it selects the newest state and each
+camera frame at or before its anchor, allowing up to 200 ms of staleness.
+Set `--max-stale-ms 0` to require exact timestamp matches. A row is skipped
+if any required state or frame is missing or too old.
+
+Episodes use the keypoints above. Discarded and unclosed takes are excluded;
+another `recording` marker closes the previous episode and opens a new one.
+If no `recording` marker exists, the full archive becomes one episode.
+Use `--sender policy-act` to select that sender, including inactive actions
+if the recorder captured them with the `"all"` subscription.
+
+Add `--dry-run` to inspect episodes, cameras, senders, and schema compatibility
+without writing a dataset. It doesn't validate every output row. Add `--push`
+with your Hugging Face repository ID to upload the result. The full
 rules are in Portal's
 [data recording guide](https://github.com/livekit/portal/blob/main/docs/03-data-recording.md#convert-recordings-into-training-datasets).
 
@@ -139,14 +146,15 @@ read the `.rrd` files directly and write your own pipeline.
 
 ## One row per action
 
-The converter writes one row per executed action, not one per
-observation. The action stream is the one that reflects decisions: a
-human-driven leader emits one action per tick, and a slow policy emits
-fewer. Writing a row per observation would give 30 rows a second even
-when the policy decides at 10 Hz, and most of them would repeat the same
-action. A 10 Hz policy instead produces about 10 rows a second into a
-dataset whose `fps` says 30. Missing rows show up as gaps, not as
-mistimestamped data, which is the right failure mode.
+Each selected action with complete observations produces one dataset row.
+The converter doesn't resample actions or insert rows for missing samples.
+
+The dataset's `fps` defaults to the robot's state rate. LeRobot assigns output
+timestamps from row indices and that rate, so a 10 Hz action stream written
+at 30 fps is compressed in time; missing rows don't preserve timing gaps.
+Choose `--fps` to match the cadence your training data requires. If you need
+resampling or the original irregular timing, use the Python reader and a
+custom conversion step.
 
 ## Recording while a policy drives
 
@@ -163,8 +171,9 @@ be running if you want to mark episodes from it:
 ```
 
 The policy doesn't record itself. It only sends actions; the robot's
-gate executes the active operator's, and the recorder stores them with
+gate accepts the active operator's. The recorder stores received actions with
 their sender and `in_reply_to_ts_us`. Take over with `c` and your
-corrections land in the same episode, labelled as yours.
+corrections remain in the same archive, labelled as yours. Conversion includes
+them when they fall within a retained episode and have the required observations.
 
 Next: [05. Handoff](05-handoff.md).
