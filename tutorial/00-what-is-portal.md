@@ -46,13 +46,16 @@ it takes care of the transport.
 
 ## A brief look into Portal
 
-In Portal there are two roles:
+In Portal there are three roles:
 
 - A **robot** publishes what it sees (camera frames plus joint state) and
   runs whatever action it's told to.
 - An **operator** receives those observations and sends back actions. A
   human teleop is an operator; a policy is an operator. Same thing, to
   Portal.
+- An **observer** sees everything in the room but never drives. This
+  project's recorder is one; we meet it in
+  [04. HITL recording](04-hitl-recording.md).
 
 For example, say you have an arm wired up to one computer and you want to
 teleoperate it from your laptop across the room. You'd run a robot script
@@ -89,7 +92,7 @@ async def main():
 
     while running:
         obs = robot.get_observation()
-        ts = int(time.time() * 1_000_000)
+        ts = robot_portal.now_us()                # one timestamp for the whole tick
         robot_portal.send_video_frame("front", obs.image, 640, 480, timestamp_us=ts)
         robot_portal.send_state(obs.state, timestamp_us=ts)
         await asyncio.sleep(1 / 30)
@@ -158,7 +161,7 @@ Each remaining page takes on one piece:
 | [01. Wire contract](01-wire-contract.md)               | The schema all three processes must agree on, and where it lives so it can't drift.      |
 | [02. Robot loop](02-robot-loop.md)                     | The robot side: publish state plus frames on one timestamp, run the action that arrives. |
 | [03. Operator loop](03-operator-loop.md)               | The operator side: receive observations, send actions, claim control.                    |
-| [04. HITL recording](04-hitl-recording.md)             | Record whoever is driving and line each action up with the observation it answered.      |
+| [04. HITL recording](04-hitl-recording.md)             | Record whoever is driving with an observer, mark episodes with keypoints, convert to a dataset. |
 | [05. Handoff](05-handoff.md)                           | Trade control between a human and a policy mid-session, cleanly.                         |
 | [06. Plugging in a policy](06-plugging-in-policies.md) | Drop a trained ACT checkpoint in as just another operator.                               |
 | [07. Running the rig](07-running-the-rig.md)           | The runbook: setup, calibration, collect data, train, run inference, deploy.             |

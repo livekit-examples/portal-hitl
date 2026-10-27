@@ -8,16 +8,13 @@ behind `select_action`. The example in this repo is
 
 This page walks the per-tick flow that policies use.
 
-## Why per-tick, not action chunks
+## One action per tick
 
-Portal ships an `add_action_chunk(...)` declaration for VLA-style
-horizons. We do not use it here. The lerobot policies (ACT, Diffusion,
+Portal sends one action per control tick; there is no action-chunk
+message on the wire. That suits lerobot: the policies (ACT, Diffusion,
 SmolVLA, VQBeT) all expose `policy.select_action(batch)` returning a
-single action. They handle chunk buffering and temporal ensembling
-internally.
-
-So the wire schema stays flat: `action` only, no `action_chunks` in
-`portal.yaml`. One tick, one `op.send_action(...)`.
+single action, and handle chunk buffering and temporal ensembling
+internally. One tick, one `op.send_action(...)`.
 
 ## The tick body
 
@@ -47,15 +44,12 @@ async for _ in pace(fps):
 
     # 3. Reshape back to a dict and send.
     action = {k: float(v) for k, v in zip(ACTION_KEYS, action_t.tolist())}
-    op.send_action(
-        action,
-        timestamp_us=int(time.time() * 1_000_000),
-        in_reply_to_ts_us=obs.timestamp_us,
-    )
+    op.send_action(action, in_reply_to_ts_us=obs.timestamp_us)
 ```
 
 Three steps: build batch, run inference, send. `in_reply_to_ts_us=obs.timestamp_us`
-is what closes the e2e latency loop (see [05. Handoff](05-handoff.md)).
+closes the e2e latency loop (see [05. Handoff](05-handoff.md)) and tells
+the recording which observation the action answered.
 
 ## Self-claim and the safety gate
 
@@ -97,24 +91,24 @@ exists:
 
 ## Field ordering
 
-The `STATE_KEYS` and `ACTION_KEYS` constants in each policy are
-alphabetical:
+The `STATE_KEYS` and `ACTION_KEYS` constants in each policy follow
+`portal.yaml`'s declaration order:
 
 ```python
 STATE_KEYS = (
-    "elbow_flex.pos",
-    "gripper.pos",
-    "shoulder_lift.pos",
     "shoulder_pan.pos",
+    "shoulder_lift.pos",
+    "elbow_flex.pos",
     "wrist_flex.pos",
-    "wrist_roll.pos",
     "wrist_yaw.pos",
+    "wrist_roll.pos",
+    "gripper.pos",
 )
 ACTION_KEYS = STATE_KEYS
 ```
 
-That ordering matches what `LeRobotDataset.create` writes for the
-`names` list at dataset creation time. The policy was trained with
+That ordering matches the `names` list `livekit-portal convert` writes
+into the dataset, which comes from the schema recorded in each archive. The policy was trained with
 this order, so the action tensor it returns is indexed this way.
 Reordering would silently mis-route values to the wrong motors.
 

@@ -16,9 +16,9 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 
-# Operator-side only: dataset recordings and trained checkpoints. The
-# robot host doesn't write data and doesn't run inference, so neither
-# tree belongs there. Multi-GB on a real corpus.
+# Operator-side only: recordings, datasets and trained checkpoints. The
+# robot host doesn't record and doesn't run inference, so neither tree
+# belongs there. Multi-GB on a real corpus.
 data/
 checkpoints/
 

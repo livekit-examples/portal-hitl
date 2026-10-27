@@ -5,8 +5,8 @@ so this file is the Portal flow alone. Each tick:
 
   1. ``follower.get_observation()`` produces state + camera frames.
   2. ``robot.send_state(...)`` and ``robot.send_video_frame(...)`` for each
-     camera, all sharing one timestamp so the operator's synchronizer can
-     match them into one observation.
+     camera, all sharing one ``robot.now_us()`` timestamp so the operator's
+     synchronizer can match them into one observation.
   3. Apply the latest action received via ``on_action`` (the gate has
      already decided it should reach us based on ``active_operator``).
   4. Sleep to the next tick.
@@ -24,7 +24,6 @@ import asyncio
 import logging
 import os
 import pathlib
-import time
 
 from livekit.portal import Action, Robot, RobotConfig
 
@@ -81,7 +80,7 @@ async def main() -> None:
 
     try:
         async for _ in pace(fps):
-            ts_us = int(time.time() * 1_000_000)
+            ts_us = robot.now_us()
 
             state, frames = split_state_frames(follower.get_observation())
             robot.send_state(state, timestamp_us=ts_us)

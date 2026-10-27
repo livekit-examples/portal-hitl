@@ -3,9 +3,10 @@
 .env.*
 !.env.example
 
-# Recorded datasets. teleoperator.py writes to data/<repo_id>/ by
-# default (override with PORTAL_HITL_DATASET_ROOT). Keep out of git;
-# push these to HF Hub or object storage instead.
+# Recordings and datasets. recorder.py writes .rrd archives to
+# data/recordings/ and `livekit-portal convert` writes datasets to
+# data/<repo_id>/. Keep out of git; push these to HF Hub or object
+# storage instead.
 /data/
 
 # Training output. policies/<algo>/train.py writes to /outputs/<RUN_NAME>/,

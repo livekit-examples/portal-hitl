@@ -303,11 +303,7 @@ async def main() -> None:
             # `metrics.policy.e2e_us_*` (true obs→action latency, not
             # network ping). When the human is the active operator the
             # gate drops this call.
-            op.send_action(
-                action,
-                timestamp_us=int(time.time() * 1_000_000),
-                in_reply_to_ts_us=obs.timestamp_us,
-            )
+            op.send_action(action, in_reply_to_ts_us=obs.timestamp_us)
 
     except KeyboardInterrupt:
         print("\n[policy-act] stopping ...")

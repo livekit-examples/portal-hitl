@@ -18,8 +18,7 @@ robot = Robot(cfg)
 
 `Robot` is a thin facade over `Portal` with the role pinned to
 `Role.ROBOT`. It exposes the publishing methods (`send_state`,
-`send_video_frame`) and the receiving callbacks (`on_action`,
-`on_action_chunk`). It refuses anything that only makes sense on the
+`send_video_frame`) and the receiving callback (`on_action`). It refuses anything that only makes sense on the
 operator side.
 
 ## Receiving actions
@@ -77,7 +76,7 @@ loop, so we always await.
 ## The tick body
 
 ```python
-ts_us = int(time.time() * 1_000_000)
+ts_us = robot.now_us()
 
 state, frames = split_state_frames(follower.get_observation())
 robot.send_state(state, timestamp_us=ts_us)
@@ -94,6 +93,8 @@ Three points:
   share the same `ts_us`. Portal's synchronizer on the operator side
   uses these timestamps to match state samples with frames into a
   single `Observation`. Different timestamps would never match.
+  `robot.now_us()` is the robot's clock, which every other peer syncs
+  to; it is also what the send calls use when you pass no timestamp.
 - **Frames are RGB uint8.** `send_video_frame` accepts `bytes` or an
   `np.ndarray(H, W, 3)`. `utils/rebot.py` configures the cameras as
   `color_mode=RGB` so frames are published in the layout Portal expects.
