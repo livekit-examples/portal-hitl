@@ -45,8 +45,9 @@ bandwidth. PNG and RAW use the same channel with larger payloads. See
 ## Add a camera
 
 Add its track to `portal.yaml` on every host and configure its device through
-`B601_CAM_<TRACK>`, dropping the `_camera` suffix. For example,
-`overhead_camera` uses `B601_CAM_OVERHEAD`.
+`B601_CAM_<TRACK>`, dropping the `_camera` suffix. For an overhead camera,
+uncomment the `overhead_camera` line in `portal.yaml` and set
+`B601_CAM_OVERHEAD`.
 
 Every declared camera must publish. The human operator waits for a frame from
 each before assigning observation anchors; synchronized observations for the
