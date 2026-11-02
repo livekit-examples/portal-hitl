@@ -1,15 +1,15 @@
 """Operator side: reBot 102 leader -> Portal actions, and a window to fly by.
 
-Run with `uv run teleoperator`. Each tick reads one action off the leader and
-sends it; nothing is recorded here. `uv run recorder` is an observer in the
+Run with `uv run teleoperator.py`. Each tick reads one action off the leader and
+sends it; nothing is recorded here. `uv run recorder.py` is an observer in the
 same room that writes the archive, and this process only marks where the
 takes are, with keypoints, when a hotkey is pressed.
 
 Every action declares the frame it answers in `in_reply_to_ts_us` -- a FRAME
 timestamp, because the operator flies on the video, and it is generally a tick
-or two behind the state on the wire. See docs/architecture.md#the-anchor-is-the-whole-story.
+or two behind the state on the wire. See tutorial/03-operator-loop.md.
 
-Hotkeys: `r` toggle recording, `[` end and mark the take discarded, `x` quit.
+Hotkeys: `c` cycle control, `r` toggle recording, `[` end and mark the take discarded, `x` quit.
 """
 from __future__ import annotations
 
@@ -20,9 +20,7 @@ import time
 from collections import deque
 from typing import Optional
 
-from livekit.portal import Operator, OperatorConfig, VideoFrameData, frame_bytes_to_numpy_rgb
-
-from portal_rebot.common import (
+from _common import (
     CONFIG_PATH,
     TELEOPERATOR_IDENTITY,
     HardwareThread,
@@ -32,46 +30,26 @@ from portal_rebot.common import (
     pace,
     required_env,
 )
-from portal_rebot.teleoperator.hotkeys import Hotkeys, input_backend_warning
-from portal_rebot.teleoperator.leader import build_leader
-from portal_rebot.teleoperator.preview import Preview
-from portal_rebot.teleoperator.session import prompt_tasks
+
+from livekit.portal import Operator, OperatorConfig, VideoFrameData, frame_bytes_to_numpy_rgb
+from utils.hotkeys import Hotkeys, input_backend_warning
+from utils.rebot import build_leader
+from utils.rerun_view import Preview
+from utils.session import prompt_tasks
 
 logger = logging.getLogger(__name__)
 
 
-async def maintain_control(op: Operator, me: str, period: float = 1.0) -> None:
-    """Keep the robot's action gate pointed at us, forever.
-
-    Claiming is not a one-shot on connect: `set_active_operator` is an RPC *to
-    the robot*, nothing orders the two processes, the robot clears the pointer
-    when we leave the room, and a robot restart resets it to None. Polling
-    covers all of that.
-
-    Nothing here may raise -- a claim that cannot land yet is the normal state
-    before the robot joins -- but it is reported once per distinct situation,
-    because an unclaimed gate looks exactly like a dead leader arm from the
-    operator's chair.
-    """
-    last_report: Optional[str] = None
-
-    def report(message: str) -> None:
-        nonlocal last_report
-        if message != last_report:
-            print(f"[teleop] {message}")
-            last_report = message
-
-    while True:
-        try:
-            if (robot := op.robot_identity()) is None:
-                report("no robot in the room yet; actions we send are dropped")
-            elif op.active_operator() != me:
-                await op.set_active_operator(me)
-                last_report = None
-                print(f"[teleop] claimed control as '{me}' on robot '{robot}'")
-        except Exception as exc:
-            report(f"could not claim control, retrying: {exc}")
-        await asyncio.sleep(period)
+async def cycle_active_operator(op: Operator, me: str) -> None:
+    """Claim control, or cycle through the other connected operators."""
+    ring = [me, *sorted(op.operators())]
+    current = op.active_operator()
+    target = ring[(ring.index(current) + 1) % len(ring)] if current in ring else me
+    try:
+        await op.set_active_operator(target)
+        print(f"[teleop] active operator → {target}")
+    except Exception as exc:
+        print(f"[teleop] could not change control: {exc}; press c to retry")
 
 
 # The keypoint types `livekit-portal convert` cuts episodes at by default.
@@ -220,9 +198,6 @@ async def main() -> None:
     await op.connect(url, mint_token(TELEOPERATOR_IDENTITY, room))
     me = op.local_identity()
 
-    # Single-operator rig: hold the gate for the whole session. Until the
-    # pointer names us the robot drops everything we send.
-    claim = asyncio.create_task(maintain_control(op, me))
     marks: set[asyncio.Task] = set()
 
     def mark(kind: str, then=None) -> None:
@@ -244,7 +219,7 @@ async def main() -> None:
     for number, name in enumerate(tasks, start=1):
         print(f"[teleop]   {'>' if number == active + 1 else ' '} {number}  {name}")
     switch = f"  1-{len(tasks)}=switch task" if len(tasks) > 1 else ""
-    print(f"[teleop] hotkeys: r=record  [=discard the take  x=quit{switch}")
+    print(f"[teleop] hotkeys: c=cycle operator  r=record  [=discard the take  x=quit{switch}")
     preview.show_task(tasks, active)
 
     tally = Tally(tasks)
@@ -264,6 +239,8 @@ async def main() -> None:
             for key in hotkeys.drain():
                 if key == "x":
                     stop = True
+                elif key == "c":
+                    await cycle_active_operator(op, me)
                 elif key == "r":
                     recording = not recording
                     if recording:
@@ -308,7 +285,6 @@ async def main() -> None:
             # ending the archive in the middle of a take.
             await send_keypoint(op, DISCARD, {"task_description": task}, view.anchor())
         preview.close()
-        claim.cancel()
         try:
             await op.disconnect()
         finally:
@@ -317,9 +293,5 @@ async def main() -> None:
             leader.disconnect()
 
 
-def run() -> None:
-    asyncio.run(main())
-
-
 if __name__ == "__main__":
-    run()
+    asyncio.run(main())

@@ -27,3 +27,7 @@ data/
 
 # Per-machine overrides; each machine keeps its own.
 .env.local
+
+# Training artifacts stay on the training host.
+checkpoints/
+outputs/

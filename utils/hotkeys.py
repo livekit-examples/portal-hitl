@@ -5,7 +5,7 @@ while the operator is looking at the rerun window -- and every platform can
 starve that tap silently (see `input_backend_warning`). A terminal read has the
 opposite profile: it works under Wayland and over SSH where pynput cannot, but
 only while the terminal has focus. `drain()` merges both and the tick loop
-never blocks. See docs/architecture.md#keys.
+never blocks. See tutorial/03-operator-loop.md.
 """
 from __future__ import annotations
 
@@ -20,8 +20,8 @@ from typing import Optional
 
 from pynput import keyboard
 
-# `1`-`9` select the session's task; see teleoperator/session.py for why nine.
-KEYS = {"r", "[", "x"} | {str(digit) for digit in range(1, 10)}
+# `1`-`9` select the session's task; see utils/session.py for why nine.
+KEYS = {"c", "r", "[", "x"} | {str(digit) for digit in range(1, 10)}
 
 # One keystroke can reach both taps at once -- X11 with the terminal focused
 # sees it on XRecord and on stdin -- and delivered twice, `r` would toggle

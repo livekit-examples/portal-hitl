@@ -28,3 +28,7 @@ __pycache__/
 .idea/
 .DS_Store
 .claude/
+
+# Training artifacts.
+/outputs/
+/checkpoints/

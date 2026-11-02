@@ -1,22 +1,11 @@
 [project]
-name = "portal-rebot"
+name = "portal-hitl"
 version = "0.1.0"
-description = "Teleop data collection on top of livekit-portal. A Seeed reBot Arm B601-DM (6-DOF + gripper) follower driven by a remote operator with a reBot 102 leader; a third, listen-only operator records state, video and actions to one aligned .rrd timeline."
+description = "A tutorial on human-in-the-loop robot learning with LiveKit Portal."
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    # `rerun`: the recorder's `RrdSink`. `lerobot`: `livekit-portal convert`,
-    # which turns those archives into a LeRobot v3 dataset offline.
     "livekit-portal[rerun,lerobot]>=0.3.0rc1",
     "livekit-api>=0.7",
-    # Stock PyPI lerobot, for the hardware drivers only:
-    #   rebot    - the reBot Arm B601-DM follower and reBot 102 leader
-    #              drivers, plus their motorbridge / motorbridge-smart-servo
-    #              backends. Both arms ship upstream as of lerobot 0.6.0, so
-    #              the out-of-tree lerobot-robot-seeed-b601 and
-    #              lerobot-teleoperator-rebot-arm-102 plugins are no longer
-    #              needed. See https://wiki.seeedstudio.com/rebot_arm_b601_dm_lerobot/
-    #   hardware - camera and motor bus backends.
-    # We avoid the VLA extras (and their transformers pin) entirely.
     "lerobot[rebot,hardware]>=0.6.1",
     "numpy>=1.24",
     "python-dotenv>=1",
@@ -25,27 +14,5 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = []
-
-# One package, three peers. Each is installed as a console script, so `uv run
-# robot` / `uv run teleoperator` / `uv run recorder` work from anywhere in the
-# repo; `python -m portal_rebot.robot` is the same entry point. `robot` drives
-# the arm, `teleoperator` drives the human's leader arm, and `recorder` is a
-# Portal observer that writes the session archive. The wire contract is
-# `portal.yaml` at the repo root. Read the three `__main__.py` files
-# top-to-bottom, they are the example. Archives become a LeRobot v3 dataset
-# offline with `uv run livekit-portal convert`, which Portal ships.
-[project.scripts]
-robot = "portal_rebot.robot.__main__:run"
-teleoperator = "portal_rebot.teleoperator.__main__:run"
-recorder = "portal_rebot.recorder.__main__:run"
-
-[build-system]
-requires = ["uv_build>=0.9,<0.10"]
-build-backend = "uv_build"
-
-# Flat layout: the package sits at the repo root next to `portal.yaml`, which
-# `common.py` resolves one level up from itself.
-[tool.uv.build-backend]
-module-name = "portal_rebot"
-module-root = ""
+# Training alone needs no robot, LiveKit connection, or desktop input.
+train = ["lerobot[training]>=0.6.1"]

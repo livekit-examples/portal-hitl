@@ -1,6 +1,6 @@
 """Shared plumbing: env loading, LiveKit tokens, and the tick pacer.
 
-`portal.yaml` and the `.env` files live one level up, at the repo root.
+`portal.yaml` and the `.env` files live beside this file, at the repo root.
 """
 from __future__ import annotations
 
@@ -12,11 +12,13 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, AsyncIterator, Callable, Optional
 
+os.environ.setdefault("RUST_LOG", "warn,livekit_portal::sync_buffer=error,libwebrtc=error")
+
 from dotenv import load_dotenv
 from livekit import api
 from livekit.protocol.room import RoomConfiguration
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
+ROOT = pathlib.Path(__file__).resolve().parent
 CONFIG_PATH = ROOT / "portal.yaml"
 
 ROBOT_IDENTITY = "robot"
@@ -87,7 +89,7 @@ async def pace(fps: int) -> AsyncIterator[int]:
     for` is not itself a suspension point, so a consistently overrunning tick
     body would turn this into a busy-loop that never services the Portal
     callbacks it depends on -- the arm stops following while the loop still
-    looks healthy. See docs/operations.md#known-issues.
+    looks healthy. See tutorial/07-running-the-rig.md#troubleshooting.
     """
     interval = 1.0 / fps
     next_tick = time.perf_counter()

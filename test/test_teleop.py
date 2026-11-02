@@ -10,6 +10,7 @@ away from testable, so there is no excuse for leaving them to the rig.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import pty
 import sys
@@ -19,8 +20,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from portal_rebot.teleoperator.__main__ import Tally, View, select_task
-from portal_rebot.teleoperator.preview import Preview
+from teleoperator import Tally, View, cycle_active_operator, select_task
+from utils.rerun_view import Preview
 from test._harness import Checks
 
 
@@ -95,7 +96,7 @@ def check_hotkeys(c: Checks) -> None:
     saved, sys.stdin = sys.stdin, os.fdopen(secondary, "r")
     before = termios.tcgetattr(secondary)
     try:
-        from portal_rebot.teleoperator.hotkeys import Hotkeys
+        from utils.hotkeys import Hotkeys
 
         # Terminal tap only: the global tap reads the whole machine, so a key
         # typed in another window would arrive here as a real event.
@@ -105,10 +106,10 @@ def check_hotkeys(c: Checks) -> None:
 
         # All at once: a buffered read would hand back one and strand the rest
         # until the next keystroke.
-        os.write(primary, b"r3[x")
+        os.write(primary, b"cr3[x")
         time.sleep(0.5)
         got = keys.drain()
-        c.check(got == ["r", "3", "[", "x"], "every key arrives, in order, in one drain",
+        c.check(got == ["c", "r", "3", "[", "x"], "every key arrives, in order, in one drain",
                 str(got))
 
         os.write(primary, b"qz0")
@@ -125,8 +126,10 @@ def check_hotkeys(c: Checks) -> None:
 
         keys.stop()
         time.sleep(0.2)
-        c.check(termios.tcgetattr(secondary) == before,
-                "the terminal is restored on stop -- cbreak left behind is a dead shell")
+        restored = termios.tcgetattr(secondary)
+        c.check(restored == before,
+                "the terminal is restored on stop -- cbreak left behind is a dead shell",
+                str([(i, a, b) for i, (a, b) in enumerate(zip(before, restored)) if a != b]))
     finally:
         sys.stdin = saved
         os.close(primary)
@@ -138,7 +141,7 @@ def answer(script: str) -> list[str]:
     A real terminal, not a pipe: the prompt takes the default without asking
     when stdin is not a tty, which is the branch that must NOT run here.
     """
-    from portal_rebot.teleoperator.session import prompt_tasks
+    from utils.session import prompt_tasks
 
     primary, secondary = pty.openpty()
     saved, sys.stdin = sys.stdin, os.fdopen(secondary, "r")
@@ -151,7 +154,7 @@ def answer(script: str) -> list[str]:
 
 
 def check_session(c: Checks) -> None:
-    from portal_rebot.teleoperator.session import DEFAULT_TASK, MAX_TASKS
+    from utils.session import DEFAULT_TASK, MAX_TASKS
 
     for key in ("PORTAL_DATA_TASKS", "PORTAL_DATA_TASK"):
         os.environ.pop(key, None)
@@ -185,8 +188,44 @@ def check_preview(c: Checks) -> None:
     c.check(True, "Preview survives a missing viewer binary and stays usable")
 
 
+async def check_handoff(c: Checks) -> None:
+    class Gate:
+        current = None
+        peers = []
+        fail = False
+
+        def operators(self):
+            return self.peers
+
+        def active_operator(self):
+            return self.current
+
+        async def set_active_operator(self, target):
+            if self.fail:
+                raise RuntimeError("robot disconnected")
+            self.current = target
+
+    gate = Gate()
+    await cycle_active_operator(gate, "human")
+    c.check(gate.current == "human", "c claims human control from an empty gate")
+    await cycle_active_operator(gate, "human")
+    c.check(gate.current == "human", "solo teleop keeps human control")
+    gate.peers = ["policy-act"]
+    await cycle_active_operator(gate, "human")
+    c.check(gate.current == "policy-act", "c hands control to ACT")
+    await cycle_active_operator(gate, "human")
+    c.check(gate.current == "human", "c takes control back for a correction")
+    gate.current = "departed-policy"
+    await cycle_active_operator(gate, "human")
+    c.check(gate.current == "human", "a missing active peer returns the cycle to human")
+    gate.fail = True
+    await cycle_active_operator(gate, "human")
+    c.check(gate.current == "human", "failed RPC leaves control unchanged without ending teleop")
+
+
 def main() -> int:
     c = Checks("teleoperator")
+    asyncio.run(check_handoff(c))
     check_view(c)
     check_task_switch(c)
     check_session(c)

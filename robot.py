@@ -1,6 +1,6 @@
 """Robot side: drives the B601-DM follower behind a Portal `Robot`.
 
-Run with `uv run robot`. Each tick reads state and camera frames from the
+Run with `uv run robot.py`. Each tick reads state and camera frames from the
 follower, publishes them on one shared timestamp so the operator's
 synchronizer can match them into a single observation, and applies whatever
 action last cleared the active-operator gate.
@@ -13,9 +13,7 @@ import os
 import time
 from typing import Iterator
 
-from livekit.portal import Action, Robot, RobotConfig
-
-from portal_rebot.common import (
+from _common import (
     CONFIG_PATH,
     ROBOT_IDENTITY,
     HardwareThread,
@@ -26,7 +24,9 @@ from portal_rebot.common import (
     pace,
     required_env,
 )
-from portal_rebot.robot.follower import build_follower, split_state_frames
+
+from livekit.portal import Action, Robot, RobotConfig
+from utils.rebot import build_follower, split_state_frames
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +78,12 @@ async def main() -> None:
 
     robot.on_action(on_action)
     robot.on_operator_left(on_operator_left)
-    robot.on_active_operator_changed(lambda i: print(f"[robot] active operator now: {i}"))
+    def on_active_operator_changed(identity: str | None) -> None:
+        nonlocal latest_action
+        latest_action = {}
+        print(f"[robot] active operator now: {identity}")
+
+    robot.on_active_operator_changed(on_active_operator_changed)
 
     follower.connect()
     print(f"[robot] connecting to {url} as '{ROBOT_IDENTITY}' in room '{room}' ...")
@@ -128,9 +133,5 @@ async def main() -> None:
             follower.disconnect()
 
 
-def run() -> None:
-    asyncio.run(main())
-
-
 if __name__ == "__main__":
-    run()
+    asyncio.run(main())

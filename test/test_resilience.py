@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import sys
 
-from portal_rebot.robot.follower import _ResilientBus
+from utils.rebot import _ResilientBus
 from test._harness import Checks
 
 ERRORS_BEFORE_RECONNECT = 3
@@ -163,7 +163,7 @@ def main() -> int:
     bus = bus_for(f, interval=30.0)
     bus.install()
     f.failing = True
-    import portal_rebot.robot.follower as follower_module
+    import utils.rebot as follower_module
     lines = []
     original = follower_module.logger.warning
     follower_module.logger.warning = lambda msg, *a: lines.append(msg % a if a else msg)
@@ -177,7 +177,7 @@ def main() -> int:
             f"{len(failures)} lines for 90 ticks")
 
     # -- the speed cap --------------------------------------------------------
-    from portal_rebot.robot.follower import _StepLimiter
+    from utils.rebot import _StepLimiter
 
     def limiter_for(f, step=5.0, lag=30.0, uncapped=()):
         limiter = _StepLimiter(f, max_step_deg=step, max_lag_deg=lag, uncapped=uncapped)

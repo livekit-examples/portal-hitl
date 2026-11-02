@@ -1,8 +1,8 @@
 """Synthetic peers, driven by the test scripts.
 
-`FakeRobot` stands in for `robot/__main__.py` minus the hardware,
-`FakeOperator` for `teleoperator/__main__.py` minus the leader arm, and
-`FakeRecorder` for `recorder/__main__.py` -- which needs no stubbing at all,
+`FakeRobot` stands in for `robot.py` minus the hardware,
+`FakeOperator` for `teleoperator.py` minus the leader arm, and
+`FakeRecorder` for `recorder.py` -- which needs no stubbing at all,
 since it has no hardware: it is Portal's `Observer` writing through `RrdSink`.
 Each exposes `run()` so a test can drive them as tasks and inspect their
 counters afterwards.
@@ -32,8 +32,8 @@ from livekit.portal import (
 
 from livekit.portal.recording import RrdSink
 
-from portal_rebot.common import RECORDER_IDENTITY, mint_token, pace
-from portal_rebot.teleoperator.__main__ import View
+from _common import RECORDER_IDENTITY, mint_token, pace
+from teleoperator import View
 from test._harness import (
     SEEN_ACTION_IDX,
     TICK_STATE_IDX,
@@ -195,8 +195,8 @@ class FakeOperator:
     async def claim(self, timeout_s: float = 5.0) -> bool:
         """Claim the action gate, retrying until the robot is reachable.
 
-        Same reasoning as `maintain_control` in the real operator: the RPC goes
-        to the robot, so it fails until the robot has joined.
+        The RPC goes to the robot, so the harness waits until it has joined.
+        The human-facing operator retries only when c is pressed.
         """
         me = self.portal.local_identity()
         deadline = time.monotonic() + timeout_s
@@ -256,7 +256,7 @@ class FakeOperator:
 
 
 class FakeRecorder:
-    """`recorder/__main__.py` with nothing stubbed out: an `Observer` on the
+    """`recorder.py` with nothing stubbed out: an `Observer` on the
     shared config, waiting for the robot's clock, writing through `RrdSink`."""
 
     def __init__(self, room: str, url: str, rrd_dir, jpeg_quality: int = 95,

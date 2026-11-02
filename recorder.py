@@ -1,6 +1,6 @@
 """Recorder side: a Portal observer that writes the session's `.rrd`.
 
-Run with `uv run recorder`. It subscribes to state, camera frames, the actions
+Run with `uv run recorder.py`. It subscribes to state, camera frames, the actions
 of whichever operator drives, and every keypoint, and writes them with Portal's
 `RrdSink`. There is nothing to press and no window to look at. An observer
 cannot drive, so this process cannot move the arm however it is started.
@@ -13,10 +13,7 @@ import asyncio
 import logging
 import os
 
-from livekit.portal import Observer, ObserverConfig
-from livekit.portal.recording import RrdSink
-
-from portal_rebot.common import (
+from _common import (
     CONFIG_PATH,
     RECORDER_IDENTITY,
     env_int,
@@ -25,6 +22,9 @@ from portal_rebot.common import (
     mint_token,
     required_env,
 )
+
+from livekit.portal import Observer, ObserverConfig
+from livekit.portal.recording import RrdSink
 
 
 def status(obs: Observer) -> str:
@@ -73,9 +73,5 @@ async def main() -> None:
             print(f"[recorder] wrote {sink.path}")
 
 
-def run() -> None:
-    asyncio.run(main())
-
-
 if __name__ == "__main__":
-    run()
+    asyncio.run(main())

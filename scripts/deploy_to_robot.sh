@@ -1,30 +1,14 @@
 #!/usr/bin/env bash
-# Rsync portal-rebot to the robot host, then print follow-up steps.
-#
-# Usage:
-#   ./scripts/deploy_to_robot.sh binh@the-mini-anton
-#   ./scripts/deploy_to_robot.sh binh@the-mini-anton '~/code/portal-rebot'
-#
-# The destination defaults to ~/workspace/portal-rebot and is the full
-# path, so a second copy under a different name is just a second argument.
-# Quote a leading ~ when you pass one: unquoted, your own shell expands it
-# to YOUR home before the script sees it, and that path is then used on
-# the robot. Quoted, it reaches the robot and expands there.
-#
-# Both arguments are given here, never read from `.env` -- which machine
-# you are pushing to is a per-invocation choice, not deployment config,
-# and one stale line in `.env` silently sending a build to the wrong arm
-# is not a failure mode worth keeping. `.env` itself IS synced, so the
-# robot picks up LIVEKIT_* / B601_* without re-entry; per-machine
-# overrides go in `.env.local`, which is not synced.
+# Usage: ./scripts/deploy_to_robot.sh user@host ['~/workspace/portal-hitl']
+# Syncs .env; keeps the remote .env.local and data/training directories.
 set -euo pipefail
 
 REMOTE="${1:-}"
-DEST="${2:-~/workspace/portal-rebot}"
+DEST="${2:-~/workspace/portal-hitl}"
 
 if [[ -z "$REMOTE" ]]; then
     echo "usage: $(basename "$0") user@host [remote-path]" >&2
-    echo "       remote-path defaults to ~/workspace/portal-rebot" >&2
+    echo "       remote-path defaults to ~/workspace/portal-hitl" >&2
     exit 1
 fi
 
@@ -43,7 +27,7 @@ echo "[deploy] ensuring remote directory exists ..."
 # directory in the remote home.
 ssh "$REMOTE" "mkdir -p $DEST"
 
-echo "[deploy] syncing portal-rebot/ ..."
+echo "[deploy] syncing portal-hitl/ ..."
 rsync -azP --delete --exclude-from="$IGNORE_FILE" "$HERE/" "$REMOTE:$DEST/"
 
 cat <<EOF
@@ -57,6 +41,6 @@ cat <<EOF
   # connects with no saved file. Saved files live under
   # ~/.cache/huggingface/lerobot/calibration/ keyed by B601_ID.
 
-  uv run robot
+  uv run robot.py
 
 EOF

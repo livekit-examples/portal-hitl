@@ -1,12 +1,13 @@
 """Seeed reBot Arm B601-DM follower: Damiao CAN motors plus USB cameras.
 
-Hardware glue only, so `__main__.py` is the Portal flow alone. The driver ships
+Hardware glue only, so the main script is the Portal flow alone. The driver ships
 in stock lerobot (the `rebot` extra) and exposes 7 joints with `.pos` keys in
-degrees. See docs/architecture.md#hardware-glue for the reasoning behind the
+degrees. See tutorial/02-robot-loop.md for the reasoning behind the
 three wrappers below.
 """
 from __future__ import annotations
 
+import json
 import logging
 import platform
 import threading
@@ -21,7 +22,12 @@ from lerobot.robots.rebot_b601_follower import (
     RebotB601FollowerRobotConfig,
 )
 
-from portal_rebot.common import env_camera_id, env_float, env_int, env_str
+from _common import env_camera_id, env_float, env_int, env_str, required_env
+
+from lerobot.teleoperators.rebot_102_leader import (
+    RebotArm102Leader,
+    RebotArm102LeaderTeleopConfig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -293,7 +299,7 @@ class _StepLimiter:
     the gripper is there because it is not under impedance control at all
     (`gripper_control_mode = "force_pos"`), so its force is already bounded.
 
-    See docs/architecture.md#hardware-glue -- getting any of this backwards
+    See tutorial/02-robot-loop.md -- getting any of this backwards
     freezes the arm.
     """
 
@@ -451,3 +457,16 @@ def split_state_frames(
     state = {k: float(v) for k, v in observation.items() if k.endswith(".pos")}
     frames = {t: observation[t] for t in tracks if observation.get(t) is not None}
     return state, frames
+
+
+def build_leader() -> RebotArm102Leader:
+    """`joint_directions` / `joint_ranges` keep their package defaults, which
+    already match the B601 follower's ranges."""
+    kwargs: dict = dict(
+        id=env_str("REBOT102_LEADER_ID", "rebot_arm_102_leader"),
+        port=required_env("REBOT102_LEADER_PORT"),
+        baudrate=env_int("REBOT102_BAUDRATE", 1_000_000),
+    )
+    if directions := env_str("REBOT102_JOINT_DIRECTIONS", ""):
+        kwargs["joint_directions"] = json.loads(directions)
+    return RebotArm102Leader(RebotArm102LeaderTeleopConfig(**kwargs))

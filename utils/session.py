@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import sys
 
-from portal_rebot.common import env_str
+from _common import env_str
 
 DEFAULT_TASK = "reBot B601 manipulation"
 MAX_TASKS = 9
