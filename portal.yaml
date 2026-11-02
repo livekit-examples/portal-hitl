@@ -5,6 +5,10 @@ fps: 30 # observation rate
 
 reuse_stale_frames: true
 
+# Unreliable data: a lost packet is skipped instead of holding up newer ones.
+state_reliable: false
+action_reliable: false
+
 videos:
   - { name: arm_camera, codec: h264, max_bitrate_kbps: 20000, screencast: true }
   - { name: overhead_camera, codec: h264, max_bitrate_kbps: 20000, screencast: true }
