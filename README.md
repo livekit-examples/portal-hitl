@@ -68,5 +68,5 @@ test/                   # hardware-free checks
 - Disk space for recording and a CUDA machine for training ACT.
 
 The walkthrough uses Portal 0.3’s observer recorder and offline converter.
-There is no package to install or CLI framework: run the scripts with `uv run`.
+There is no CLI framework: run `uv run robot`, `uv run teleoperator`, and `uv run recorder`.
 See [test/README.md](test/README.md) for hardware-free checks.

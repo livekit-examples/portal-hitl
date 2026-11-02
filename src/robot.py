@@ -1,6 +1,6 @@
 """Robot side: drives the B601-DM follower behind a Portal `Robot`.
 
-Run with `uv run src/robot.py`. Each tick reads state and camera frames from the
+Run with `uv run robot`. Each tick reads state and camera frames from the
 follower, publishes them on one shared timestamp so the operator's
 synchronizer can match them into a single observation, and applies whatever
 action last cleared the active-operator gate.
@@ -110,5 +110,9 @@ async def main() -> None:
             follower.disconnect()
 
 
-if __name__ == "__main__":
+def run() -> None:
     asyncio.run(main())
+
+
+if __name__ == "__main__":
+    run()

@@ -37,9 +37,9 @@ Calibration files live under `~/.cache/huggingface/lerobot/calibration/`, in
 Run these in separate terminals, on the appropriate hosts:
 
 ```bash
-uv run src/robot.py
-uv run src/recorder.py
-uv run src/teleoperator.py
+uv run robot
+uv run recorder
+uv run teleoperator
 ```
 
 Enter the task description when teleop starts. Wait for live video and the

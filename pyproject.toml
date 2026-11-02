@@ -13,6 +13,21 @@ dependencies = [
     "pynput>=1.7",
 ]
 
+# `uv run robot`, `uv run teleoperator`, `uv run recorder`
+[project.scripts]
+robot = "robot:run"
+teleoperator = "teleoperator:run"
+recorder = "recorder:run"
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+py-modules = ["_common", "robot", "teleoperator", "recorder"]
+packages = ["utils"]
+
 [dependency-groups]
 # Training alone needs no robot, LiveKit connection, or desktop input.
 train = ["lerobot[training]>=0.6.1"]

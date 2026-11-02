@@ -1,6 +1,6 @@
 """Operator side: reBot 102 leader -> Portal actions, and a window to fly by.
 
-Run with `uv run src/teleoperator.py`. Each tick reads one action off the leader
+Run with `uv run teleoperator`. Each tick reads one action off the leader
 and sends it. Nothing is recorded here: `src/recorder.py` writes the archive, and
 this process marks where takes start and end with keypoints.
 
@@ -233,5 +233,9 @@ async def main() -> None:
             leader.disconnect()
 
 
-if __name__ == "__main__":
+def run() -> None:
     asyncio.run(main())
+
+
+if __name__ == "__main__":
+    run()

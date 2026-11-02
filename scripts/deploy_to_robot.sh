@@ -41,6 +41,6 @@ cat <<EOF
   # connects with no saved file. Saved files live under
   # ~/.cache/huggingface/lerobot/calibration/ keyed by B601_ID.
 
-  uv run src/robot.py
+  uv run robot
 
 EOF

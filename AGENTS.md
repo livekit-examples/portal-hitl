@@ -12,7 +12,8 @@ Keep it small and readable. The README leads with the numbered `tutorial/`.
 - `src/policies/act/` contains training, inference, and a SkyPilot example.
 - `test/` checks behavior without hardware.
 
-Use plain scripts (`uv run src/robot.py`), not a package or console entry points.
+Run the three peers as `uv run robot`, `uv run teleoperator`, and `uv run recorder`
+(entry points in `pyproject.toml`); policies run as scripts under `src/policies/`.
 Keep explanations in the tutorials rather than creating a separate docs layer.
 Update affected chapters with behavior changes.
 
