@@ -26,7 +26,7 @@ operator_cfg = OperatorConfig.from_yaml_file(CONFIG_PATH, room)
 observer_cfg = ObserverConfig.from_yaml_file(CONFIG_PATH, room)
 ```
 
-Both the leader-arm process and ACT use `OperatorConfig`. The room and identity
+The leader-arm process and both policies use `OperatorConfig`. The room and identity
 come from the environment and token, so the YAML can be shared across hosts.
 Mismatched schemas produce fingerprint warnings and dropped packets. Deploy
 schema changes to every peer together.

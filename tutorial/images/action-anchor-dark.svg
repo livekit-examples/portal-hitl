@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="320" viewBox="0 0 900 320" role="img" aria-labelledby="t d">
+<title id="t">Anchoring an action</title>
+<desc id="d">The robot stamps frame and state t2 together. The frame reaches the operator later, and the action is sent later still, but it carries in_reply_to_ts_us = t2, so the recorder files it next to the state and frame it answered.</desc>
+<style>
+.trace { opacity: 0; filter: drop-shadow(0 0 2px #1FD5F9); animation-name: trace; animation-timing-function: linear; animation-iteration-count: infinite; }
+@keyframes trace { 0% { stroke-dashoffset: 28px; opacity: 1; } 85% { opacity: 1; } 100% { stroke-dashoffset: calc(-1 * var(--len)); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .trace { display: none; } }
+</style>
+<defs>
+<pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse"><line x1="0" y1="6" x2="6" y2="0" stroke="#30302F" stroke-width="1.5" stroke-opacity="0.3"/></pattern>
+<radialGradient id="fade" cx="50%" cy="50%" r="65%"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+<mask id="gridmask"><rect width="900" height="320" fill="url(#fade)"/></mask>
+</defs>
+<rect width="900" height="320" rx="10" fill="#070707"/>
+<g stroke="#1F1F1F" stroke-width="1" mask="url(#gridmask)"><line x1="0" y1="0" x2="0" y2="320"/><line x1="50" y1="0" x2="50" y2="320"/><line x1="100" y1="0" x2="100" y2="320"/><line x1="150" y1="0" x2="150" y2="320"/><line x1="200" y1="0" x2="200" y2="320"/><line x1="250" y1="0" x2="250" y2="320"/><line x1="300" y1="0" x2="300" y2="320"/><line x1="350" y1="0" x2="350" y2="320"/><line x1="400" y1="0" x2="400" y2="320"/><line x1="450" y1="0" x2="450" y2="320"/><line x1="500" y1="0" x2="500" y2="320"/><line x1="550" y1="0" x2="550" y2="320"/><line x1="600" y1="0" x2="600" y2="320"/><line x1="650" y1="0" x2="650" y2="320"/><line x1="700" y1="0" x2="700" y2="320"/><line x1="750" y1="0" x2="750" y2="320"/><line x1="800" y1="0" x2="800" y2="320"/><line x1="850" y1="0" x2="850" y2="320"/><line x1="900" y1="0" x2="900" y2="320"/><line x1="0" y1="25" x2="900" y2="25"/><line x1="0" y1="75" x2="900" y2="75"/><line x1="0" y1="125" x2="900" y2="125"/><line x1="0" y1="175" x2="900" y2="175"/><line x1="0" y1="225" x2="900" y2="225"/><line x1="0" y1="275" x2="900" y2="275"/></g>
+<text x="50" y="96" text-anchor="start" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" letter-spacing="1" fill="#999999">ROBOT · CAPTURE</text>
+<text x="50" y="186" text-anchor="start" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" letter-spacing="1" fill="#999999">OPERATOR</text>
+<text x="50" y="266" text-anchor="start" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" letter-spacing="1" fill="#999999">ARCHIVE · robot_time</text>
+<path d="M250,92 L820,92" fill="none" stroke="#30302F" stroke-width="1" stroke-linecap="round"/>
+<path d="M250,182 L820,182" fill="none" stroke="#30302F" stroke-width="1" stroke-linecap="round"/>
+<path d="M250,262 L820,262" fill="none" stroke="#30302F" stroke-width="1" stroke-linecap="round"/>
+<path d="M440,98 L440.0,127.0 Q440,135 448.0,135.0 L497.0,135.0 Q505,135 505.0,143.0 L505,176" fill="none" stroke="#666666" stroke-width="1" stroke-linecap="round"/>
+<path class="trace" d="M440,98 L440.0,127.0 Q440,135 448.0,135.0 L497.0,135.0 Q505,135 505.0,143.0 L505,176" fill="none" stroke="#1FD5F9" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="28 115" style="--len:143px;animation-duration:1.20s;animation-delay:0.20s"/>
+<path d="M580,197 L580.0,214.0 Q580,222 572.0,222.0 L448.0,222.0 Q440,222 440.0,230.0 L440,247" fill="none" stroke="#FFB752" stroke-width="1" stroke-linecap="round" stroke-dasharray="3 4"/>
+<text x="250" y="78" text-anchor="middle" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#999999">t0</text>
+<circle cx="250" cy="92" r="4" fill="#070707" stroke="#30302F"/>
+<text x="345" y="78" text-anchor="middle" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#999999">t1</text>
+<circle cx="345" cy="92" r="4" fill="#070707" stroke="#30302F"/>
+<text x="440" y="78" text-anchor="middle" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#FFFFFF">t2</text>
+<circle cx="440" cy="92" r="5" fill="#1FD5F9" stroke="#1FD5F9"/>
+<text x="535" y="78" text-anchor="middle" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#999999">t3</text>
+<circle cx="535" cy="92" r="4" fill="#070707" stroke="#30302F"/>
+<text x="630" y="78" text-anchor="middle" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#999999">t4</text>
+<circle cx="630" cy="92" r="4" fill="#070707" stroke="#30302F"/>
+<text x="725" y="78" text-anchor="middle" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#999999">t5</text>
+<circle cx="725" cy="92" r="4" fill="#070707" stroke="#30302F"/>
+<rect x="365.0" y="31" width="150.0" height="18" rx="4" fill="#000000"/>
+<rect x="365.0" y="31" width="150.0" height="18" rx="4" fill="#012A32"/>
+<text x="440" y="43.3" text-anchor="middle" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9" font-weight="700" letter-spacing="0.6" fill="#1FD5F9">FRAME + STATE · SAME ts</text>
+<circle cx="505" cy="182" r="4" fill="#070707" stroke="#666666"/>
+<text x="505" y="204" text-anchor="middle" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#666666">sees t2</text>
+<rect x="545.5" y="167.5" width="69" height="29" rx="6" fill="#070707" stroke="#30302F"/>
+<text x="580" y="186" text-anchor="middle" font-family="'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#FFFFFF">action</text>
+<rect x="640.0" y="173" width="144.0" height="18" rx="4" fill="#000000"/>
+<rect x="640.0" y="173" width="144.0" height="18" rx="4" fill="#012A32"/>
+<text x="712" y="185.3" text-anchor="middle" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9" font-weight="700" letter-spacing="0.6" fill="#1FD5F9">in_reply_to_ts_us = t2</text>
+<rect x="365.5" y="247.5" width="149" height="29" rx="6" fill="#070707" stroke="#30302F"/>
+<text x="440" y="266" text-anchor="middle" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#CCCCCC">state · frame · action</text>
+<rect x="596.0" y="253" width="168.0" height="18" rx="4" fill="#000000"/>
+<rect x="596.0" y="253" width="168.0" height="18" rx="4" fill="#FFB752" fill-opacity="0.14"/>
+<text x="680" y="265.3" text-anchor="middle" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9" font-weight="700" letter-spacing="0.6" fill="#FFB752">FILED AT t2, NOT WHEN SENT</text>
+<rect x="0.5" y="0.5" width="899" height="319" rx="10" fill="none" stroke="#202020"/>
+</svg>

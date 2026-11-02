@@ -15,22 +15,30 @@ target = ring[(ring.index(current) + 1) % len(ring)] if current in ring else me
 await op.set_active_operator(target)
 ```
 
-With teleop and ACT connected, the sequence is:
+With teleop and one policy connected, the sequence is:
 
 ```text
-no operator → teleoperator → policy-act → teleoperator → ...
+no operator → teleoperator → policy-dream-1 → teleoperator → ...
 ```
+
+With both policies connected, `c` visits each in turn:
+`teleoperator → policy-act → policy-dream-1 → teleoperator`.
 
 The call is an RPC to the robot. If it fails, teleop reports the error; press
 `c` again to retry. Neither operator claims control automatically.
 
 ## Record a correction
 
-1. Start the robot, recorder, teleoperator, and ACT inference process.
+1. Start the robot, recorder, teleoperator, and a policy: Dream-1 to start, or ACT once trained.
 2. Press `c` to select the human and position the arm.
-3. Press `r` to start a take, then `c` to select ACT.
+3. Press `r` to start a take, then `c` to select the policy.
 4. When the policy needs help, press `c` to take over and guide the leader.
-5. Press `c` to return control to ACT, or `r` to finish the take.
+5. Press `c` to return control to the policy, or `r` to finish the take.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/handoff-take-dark.svg">
+  <img alt="One take from r to r: control passes teleop, policy, teleop for a correction, policy, each switch a press of c, while the recorder writes continuously." src="images/handoff-take-light.svg" width="100%">
+</picture>
 
 The recorder stays connected throughout. It captures accepted actions from
 both senders, so the corrected trajectory can become another training episode.
@@ -40,9 +48,10 @@ in commanded target.
 ## Clear old commands
 
 The robot clears its action cache when the gate changes and releases the gate
-when the active operator disconnects. ACT resets its action history when it
-becomes active again. If control changes while inference is running, that
-inference result is discarded.
+when the active operator disconnects. Both policies reset when control changes.
+ACT clears its action history. Dream-1 waits for its in-flight request, starts a
+new session with empty frames, drops the old chunk, and ramps in from the measured pose. A result
+computed while control changed is discarded.
 
 The follower’s step limiter bounds changes to commanded targets. Clearing the
 gate stops accepting new operator actions; it does not disable motor torque.

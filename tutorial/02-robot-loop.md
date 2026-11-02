@@ -11,7 +11,7 @@ The callback saves their values; the hardware loop applies the latest values
 on its next tick. This avoids issuing a motor transaction for every packet
 when actions arrive in a burst.
 
-The robot does not need to know whether an action came from a human or ACT.
+The robot does not need to know whether an action came from a human or a policy.
 Both use the same schema and gate.
 
 ## Publish one tick

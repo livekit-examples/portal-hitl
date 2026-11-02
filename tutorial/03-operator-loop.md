@@ -29,6 +29,11 @@ single camera, it names the latest wrist frame. With several cameras, it follows
 the slowest view; it does not make their capture times simultaneous. It returns
 `None` until all cameras have produced a frame.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/action-anchor-dark.svg">
+  <img alt="The robot stamps frame and state t2 together; the operator sees t2 later and sends an action with in_reply_to_ts_us = t2, which the recorder files at t2." src="images/action-anchor-light.svg" width="100%">
+</picture>
+
 The anchor identifies the view available to the human. Using the latest state
 timestamp instead could select state that arrived before its matching video.
 Portal separately stamps when the action was sent using its robot-synchronized
@@ -37,7 +42,7 @@ clock.
 ## Claim control explicitly
 
 Press `c` to claim control. Press it again to cycle to another connected
-operator, such as `policy-act`. With only teleop connected, `c` selects teleop.
+operator, such as `policy-dream-1` or `policy-act`. With only teleop connected, `c` selects teleop.
 There is no background loop that reclaims the gate after you hand it away.
 
 The leader keeps publishing while the policy drives, but the robot rejects

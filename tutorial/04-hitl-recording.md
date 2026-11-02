@@ -2,7 +2,7 @@
 
 A correction is useful training data only if it is paired with the observation
 that prompted it. The human and policy both send an `in_reply_to_ts_us` anchor:
-the human uses the camera view, while ACT uses its input observation.
+the human uses the camera view, while a policy uses its input observation.
 
 ## Add an observer
 

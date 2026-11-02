@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="330" viewBox="0 0 900 330" role="img" aria-labelledby="t d">
+<title id="t">The HITL loop</title>
+<desc id="d">Start with Dream-1 zero-shot and correct it, or collect teleop demos. The recorder archives both; convert them into a LeRobot dataset, train ACT, then run ACT while you correct it. Every correction feeds the next training run.</desc>
+<style>
+.trace { opacity: 0; filter: drop-shadow(0 0 2px #1FD5F9); animation-name: trace; animation-timing-function: linear; animation-iteration-count: infinite; }
+@keyframes trace { 0% { stroke-dashoffset: 28px; opacity: 1; } 85% { opacity: 1; } 100% { stroke-dashoffset: calc(-1 * var(--len)); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .trace { display: none; } }
+</style>
+<defs>
+<pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse"><line x1="0" y1="6" x2="6" y2="0" stroke="#30302F" stroke-width="1.5" stroke-opacity="0.3"/></pattern>
+<radialGradient id="fade" cx="50%" cy="50%" r="65%"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+<mask id="gridmask"><rect width="900" height="330" fill="url(#fade)"/></mask>
+</defs>
+<rect width="900" height="330" rx="10" fill="#070707"/>
+<g stroke="#1F1F1F" stroke-width="1" mask="url(#gridmask)"><line x1="0" y1="0" x2="0" y2="330"/><line x1="50" y1="0" x2="50" y2="330"/><line x1="100" y1="0" x2="100" y2="330"/><line x1="150" y1="0" x2="150" y2="330"/><line x1="200" y1="0" x2="200" y2="330"/><line x1="250" y1="0" x2="250" y2="330"/><line x1="300" y1="0" x2="300" y2="330"/><line x1="350" y1="0" x2="350" y2="330"/><line x1="400" y1="0" x2="400" y2="330"/><line x1="450" y1="0" x2="450" y2="330"/><line x1="500" y1="0" x2="500" y2="330"/><line x1="550" y1="0" x2="550" y2="330"/><line x1="600" y1="0" x2="600" y2="330"/><line x1="650" y1="0" x2="650" y2="330"/><line x1="700" y1="0" x2="700" y2="330"/><line x1="750" y1="0" x2="750" y2="330"/><line x1="800" y1="0" x2="800" y2="330"/><line x1="850" y1="0" x2="850" y2="330"/><line x1="900" y1="0" x2="900" y2="330"/><line x1="0" y1="25" x2="900" y2="25"/><line x1="0" y1="75" x2="900" y2="75"/><line x1="0" y1="125" x2="900" y2="125"/><line x1="0" y1="175" x2="900" y2="175"/><line x1="0" y1="225" x2="900" y2="225"/><line x1="0" y1="275" x2="900" y2="275"/><line x1="0" y1="325" x2="900" y2="325"/></g>
+<text x="50" y="52" text-anchor="start" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" letter-spacing="1" fill="#999999">1 · TRY OR COLLECT</text>
+<text x="300" y="104" text-anchor="start" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" letter-spacing="1" fill="#999999">2 · CONVERT</text>
+<text x="510" y="104" text-anchor="start" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" letter-spacing="1" fill="#999999">3 · TRAIN</text>
+<text x="720" y="104" text-anchor="start" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" letter-spacing="1" fill="#999999">4 · CORRECT</text>
+<path d="M215,100.0 L250.0,100.0 Q258,100.0 258.0,108.0 L258.0,138.0 Q258,146 266.0,146.0 L300,146" fill="none" stroke="#666666" stroke-width="1" stroke-linecap="round"/>
+<path class="trace" d="M215,100.0 L250.0,100.0 Q258,100.0 258.0,108.0 L258.0,138.0 Q258,146 266.0,146.0 L300,146" fill="none" stroke="#1FD5F9" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="28 103" style="--len:131px;animation-duration:1.20s;animation-delay:0.00s"/>
+<path d="M215,205.0 L250.0,205.0 Q258,205.0 258.0,197.0 L258.0,166.0 Q258,158 266.0,158.0 L300,158" fill="none" stroke="#666666" stroke-width="1" stroke-linecap="round"/>
+<path class="trace" d="M215,205.0 L250.0,205.0 Q258,205.0 258.0,197.0 L258.0,166.0 Q258,158 266.0,158.0 L300,158" fill="none" stroke="#1FD5F9" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="28 104" style="--len:132px;animation-duration:1.20s;animation-delay:0.45s"/>
+<path d="M465,152.0 L510,152.0" fill="none" stroke="#666666" stroke-width="1" stroke-linecap="round"/>
+<path class="trace" d="M465,152.0 L510,152.0" fill="none" stroke="#1FD5F9" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="28 17" style="--len:45px;animation-duration:1.20s;animation-delay:0.90s"/>
+<path d="M675,152.0 L720,152.0" fill="none" stroke="#666666" stroke-width="1" stroke-linecap="round"/>
+<path class="trace" d="M675,152.0 L720,152.0" fill="none" stroke="#1FD5F9" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="28 17" style="--len:45px;animation-duration:1.20s;animation-delay:1.35s"/>
+<path d="M802.5,182 L802.5,242.0 Q802.5,250 794.5,250.0 L390.5,250.0 Q382.5,250 382.5,242.0 L382.5,182" fill="none" stroke="#666666" stroke-width="1" stroke-linecap="round"/>
+<path class="trace" d="M802.5,182 L802.5,242.0 Q802.5,250 794.5,250.0 L390.5,250.0 Q382.5,250 382.5,242.0 L382.5,182" fill="none" stroke="#1FD5F9" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="28 528" style="--len:556px;animation-duration:2.28s;animation-delay:1.80s"/>
+<rect x="50.5" y="70.5" width="164" height="59" rx="6" fill="#051518" stroke="#012A32"/>
+<text x="132.5" y="97.0" text-anchor="middle" font-family="'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#FFFFFF">Dream-1, zero-shot</text>
+<text x="132.5" y="114.0" text-anchor="middle" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#999999">you correct with c</text>
+<rect x="50.5" y="175.5" width="164" height="59" rx="6" fill="#070707" stroke="#30302F"/>
+<text x="132.5" y="202.0" text-anchor="middle" font-family="'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#FFFFFF">Teleop demos</text>
+<text x="132.5" y="219.0" text-anchor="middle" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#999999">src/teleoperator.py</text>
+<rect x="300.5" y="122.5" width="164" height="59" rx="6" fill="#070707" stroke="#30302F"/>
+<text x="382.5" y="149.0" text-anchor="middle" font-family="'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#FFFFFF">LeRobot v3 dataset</text>
+<text x="382.5" y="166.0" text-anchor="middle" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#999999">livekit-portal convert</text>
+<rect x="510.5" y="122.5" width="164" height="59" rx="6" fill="#070707" stroke="#30302F"/>
+<text x="592.5" y="149.0" text-anchor="middle" font-family="'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#FFFFFF">Train ACT</text>
+<text x="592.5" y="166.0" text-anchor="middle" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#999999">src/policies/act/train.py</text>
+<rect x="720.5" y="122.5" width="164" height="59" rx="6" fill="#051518" stroke="#012A32"/>
+<text x="802.5" y="149.0" text-anchor="middle" font-family="'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#FFFFFF">ACT, you correct</text>
+<text x="802.5" y="166.0" text-anchor="middle" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#999999">c hands over control</text>
+<rect x="520.5" y="241" width="144.0" height="18" rx="4" fill="#000000"/>
+<rect x="520.5" y="241" width="144.0" height="18" rx="4" fill="#012A32"/>
+<text x="592.5" y="253.3" text-anchor="middle" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9" font-weight="700" letter-spacing="0.6" fill="#1FD5F9">CORRECTIONS · NEXT RUN</text>
+<text x="450" y="300" text-anchor="middle" font-family="'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" fill="#999999">Dream-1 tests the loop on day one; its corrected takes can be ACT's first dataset.</text>
+<rect x="0.5" y="0.5" width="899" height="329" rx="10" fill="none" stroke="#202020"/>
+</svg>
