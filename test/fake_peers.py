@@ -115,7 +115,7 @@ class FakeRobot:
             if imp.jitter_ms:
                 await asyncio.sleep(rng.uniform(0, imp.jitter_ms) / 1000.0)
 
-            ts_us = int(time.time() * 1_000_000)
+            ts_us = self.portal.now_us()
             if rng.random() >= imp.drop_state:
                 self.portal.send_state(
                     state_for_tick(tick, self.state_fields), timestamp_us=ts_us)

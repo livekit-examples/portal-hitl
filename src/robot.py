@@ -77,7 +77,10 @@ async def main() -> None:
 
     try:
         async for tick in pace(fps):
-            ts_us = int(time.time() * 1_000_000)
+            # One stamp for state and frames, so they match into one observation. Portal's
+            # clock never goes backwards, which its lossy ordering guard relies on: a
+            # receiver drops anything stamped behind the newest it has from us.
+            ts_us = robot.now_us()
             started = time.perf_counter()
             observation = await hardware.run(follower.get_observation)
             device_ms = (time.perf_counter() - started) * 1e3
