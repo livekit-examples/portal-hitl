@@ -35,7 +35,9 @@ Calibration files live under `~/.cache/huggingface/lerobot/calibration/`, in
 
 ## Collect demonstrations
 
-Run these in separate terminals, on the appropriate hosts:
+Run these in separate terminals, on the appropriate hosts. Start the robot
+first: the recorder and operators wait for its clock when they connect, and give
+up after 10 s without it.
 
 ```bash
 uv run robot

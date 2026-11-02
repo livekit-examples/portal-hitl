@@ -33,14 +33,11 @@ async def main() -> None:
     obs = Observer(ObserverConfig.from_yaml_file(CONFIG_PATH, room))
     obs.on_keypoint(lambda kp: print(f"[recorder] {kp.type} {kp.payload} from {kp.sender}"))
 
-    synced = asyncio.Event()
-    obs.on_time_synced(synced.set)
     print(f"[recorder] connecting to {url} as '{RECORDER_IDENTITY}' in room '{room}' ...")
+    # connect() returns after the first sync with the robot's clock, so every row
+    # is stamped on it. Start the robot first: without it, connect() raises
+    # TimeSyncTimeout after 10 s.
     await obs.connect(url, mint_token(RECORDER_IDENTITY, room))
-    # Every row is stamped on the robot's clock, so nothing is written before
-    # the first sync.
-    print("[recorder] waiting for the robot's clock")
-    await synced.wait()
 
     sink = RrdSink(env_str("PORTAL_DATA_RRD_DIR", "data/sessions"),
                    jpeg_quality=env_int("PORTAL_DATA_RRD_QUALITY", 95))

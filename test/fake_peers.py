@@ -257,24 +257,21 @@ class FakeOperator:
 
 class FakeRecorder:
     """`recorder.py` with nothing stubbed out: an `Observer` on the
-    shared config, waiting for the robot's clock, writing through `RrdSink`."""
+    shared config (connect() waits for the robot's clock), writing through `RrdSink`."""
 
     def __init__(self, room: str, url: str, rrd_dir, jpeg_quality: int = 95,
                  identity: str = RECORDER_IDENTITY) -> None:
         self.room, self.url, self.identity = room, url, identity
         self.portal = Observer(ObserverConfig.from_yaml_str(config_yaml(), room))
         self.sink = RrdSink(rrd_dir, jpeg_quality=jpeg_quality)
-        self._synced = asyncio.Event()
-        self.portal.on_time_synced(self._synced.set)
 
     @property
     def rrd_path(self):
         return self.sink.path
 
-    async def connect(self, timeout_s: float = 10.0) -> None:
+    async def connect(self) -> None:
         """Returns once recording, which needs the robot in the room."""
         await self.portal.connect(self.url, mint_token(self.identity, self.room))
-        await asyncio.wait_for(self._synced.wait(), timeout_s)
         self.portal.record_to(self.sink)
 
     async def close(self) -> None:

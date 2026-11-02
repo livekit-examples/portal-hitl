@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "A tutorial on human-in-the-loop robot learning with LiveKit Portal."
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "livekit-portal[rerun,lerobot]>=0.3.0rc1",
+    "livekit-portal[rerun,lerobot]>=0.3.0rc2",
     "livekit-api>=0.7",
     "lerobot[rebot,hardware]>=0.6.1",
     "numpy>=1.24",

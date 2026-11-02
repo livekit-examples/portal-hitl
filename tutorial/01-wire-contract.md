@@ -12,8 +12,6 @@ plus the gripper. Both state and action use `.pos` fields in degrees.
 version: 1
 fps: 30
 reuse_stale_frames: true
-state_reliable: false
-action_reliable: false
 videos:
   - { name: arm_camera, codec: h264, max_bitrate_kbps: 20000, screencast: true }
   - { name: overhead_camera, codec: h264, max_bitrate_kbps: 20000, screencast: true }
@@ -46,11 +44,13 @@ inter-frame prediction but can delay state when video exceeds available
 bandwidth. PNG and RAW use the same channel with larger payloads. See
 [Running the rig](07-running-the-rig.md#configuration) for settings.
 
-State and actions go over unreliable data packets. A reliable channel
-retransmits a lost packet and holds every newer one until it arrives; at 30
-ticks a second, a newer reading is already on its way, so it is better to skip
-the lost one. The cost is that a packet can be lost or arrive out of order, and
-the recorder may miss the occasional row. Keypoints and control stay reliable.
+State and actions go over unreliable data packets, Portal's default. A reliable
+channel retransmits a lost packet and holds every newer one until it arrives; at
+30 ticks a second, a newer reading is already on its way, so it is better to
+skip the lost one. The cost is that the recorder may miss the occasional row.
+Packets can also arrive out of order; Portal drops any state or action stamped
+behind the newest it already has from that sender, so neither stream goes
+backwards. Keypoints and control stay reliable.
 
 ## Cameras
 
