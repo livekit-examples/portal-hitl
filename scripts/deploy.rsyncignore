@@ -1,9 +1,7 @@
 # Patterns for scripts/deploy_to_robot.sh. Same syntax as .gitignore.
 #
-# What's NOT in here is shipped to the robot. In particular `.env` *is*
-# synced so the robot picks up your LIVEKIT_* / B601_* config
-# without retype. Put per-machine overrides in `.env.local`; it's
-# excluded below so each machine keeps its own.
+# What's NOT in here is shipped to the robot, including `.env` and
+# `.env.local`, so the robot gets the same config without retyping it.
 
 # Version control
 .git/
@@ -24,9 +22,6 @@ data/
 .vscode/
 .idea/
 .DS_Store
-
-# Per-machine overrides; each machine keeps its own.
-.env.local
 
 # Training artifacts stay on the training host.
 checkpoints/

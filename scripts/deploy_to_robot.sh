@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Usage: ./scripts/deploy_to_robot.sh user@host ['~/workspace/portal-hitl']
-# Syncs .env; keeps the remote .env.local and data/training directories.
+# Syncs the source, .env and .env.local; keeps the remote data and training directories.
 set -euo pipefail
 
 REMOTE="${1:-}"

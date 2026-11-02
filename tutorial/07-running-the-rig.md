@@ -20,7 +20,7 @@ uv sync
 Fill in the LiveKit credentials and room and the leader serial port. The
 follower CAN port and camera default to `/dev/ttyACM0` and `/dev/video0`; add
 `B601_PORT` or `B601_CAM_ARM` if yours differ. Keep `portal.yaml` identical on
-all hosts. Use `.env.local` for machine-specific overrides.
+all hosts. Values in `.env.local` override `.env`; the deploy script copies both.
 
 On Linux, use `ls /dev/serial/by-id/` to find arm ports and
 `v4l2-ctl --list-devices` for cameras. On macOS, serial devices appear under
@@ -151,8 +151,8 @@ correction cycle. To rebuild an existing dataset root, conversion requires
 ./scripts/deploy_to_robot.sh robotuser@robot.local '~/workspace/portal-hitl'
 ```
 
-The script syncs source and `.env`; `.env.local`, datasets, checkpoints, and
-training outputs are excluded. Run `uv sync` on the destination afterwards.
+The script syncs source, `.env`, and `.env.local`, replacing the robot’s copies;
+datasets, checkpoints, and training outputs are excluded. Run `uv sync` on the destination afterwards.
 
 The processes report throughput, clock synchronization, and recording counts.
 For hardware faults, missing hotkeys, or the known timestamp regression after
