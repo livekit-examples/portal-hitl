@@ -1,16 +1,32 @@
 #!/usr/bin/env bash
-# Rsync portal-hitl to the robot PC, then print follow-up steps.
+# Rsync portal-rebot to the robot host, then print follow-up steps.
 #
 # Usage:
-#   ./scripts/deploy_to_robot.sh
-#   REMOTE=user@robot.local ./scripts/deploy_to_robot.sh
-#   REMOTE=user@robot.local REMOTE_ROOT=~/code ./scripts/deploy_to_robot.sh
+#   ./scripts/deploy_to_robot.sh binh@the-mini-anton
+#   ./scripts/deploy_to_robot.sh binh@the-mini-anton '~/code/portal-rebot'
 #
-# Defaults come from .env (PORTAL_HITL_ROBOT_REMOTE and
-# PORTAL_HITL_ROBOT_REMOTE_ROOT). The .env file itself is synced to the
-# robot so it picks up LIVEKIT_* / B601_* without re-entry; per-machine
-# overrides go in .env.local, which is NOT synced.
+# The destination defaults to ~/workspace/portal-rebot and is the full
+# path, so a second copy under a different name is just a second argument.
+# Quote a leading ~ when you pass one: unquoted, your own shell expands it
+# to YOUR home before the script sees it, and that path is then used on
+# the robot. Quoted, it reaches the robot and expands there.
+#
+# Both arguments are given here, never read from `.env` -- which machine
+# you are pushing to is a per-invocation choice, not deployment config,
+# and one stale line in `.env` silently sending a build to the wrong arm
+# is not a failure mode worth keeping. `.env` itself IS synced, so the
+# robot picks up LIVEKIT_* / B601_* without re-entry; per-machine
+# overrides go in `.env.local`, which is not synced.
 set -euo pipefail
+
+REMOTE="${1:-}"
+DEST="${2:-~/workspace/portal-rebot}"
+
+if [[ -z "$REMOTE" ]]; then
+    echo "usage: $(basename "$0") user@host [remote-path]" >&2
+    echo "       remote-path defaults to ~/workspace/portal-rebot" >&2
+    exit 1
+fi
 
 if ! command -v rsync >/dev/null 2>&1; then
     echo "rsync not found on this machine" >&2
@@ -18,53 +34,29 @@ if ! command -v rsync >/dev/null 2>&1; then
 fi
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-
-_env_get() {
-    local key="$1" file="$2"
-    [[ -f "$file" ]] || return 0
-    local line
-    line="$(grep -E "^${key}=" "$file" | tail -1 || true)"
-    [[ -n "$line" ]] || return 0
-    local value="${line#${key}=}"
-    value="${value%$'\r'}"
-    [[ "$value" == \"*\" && "$value" == *\" ]] && value="${value:1:-1}"
-    [[ "$value" == \'*\' && "$value" == *\' ]] && value="${value:1:-1}"
-    printf '%s\n' "$value"
-}
-
-if [[ -f "$HERE/.env" ]]; then
-    : "${PORTAL_HITL_ROBOT_REMOTE:=$(_env_get PORTAL_HITL_ROBOT_REMOTE "$HERE/.env")}"
-    : "${PORTAL_HITL_ROBOT_REMOTE_ROOT:=$(_env_get PORTAL_HITL_ROBOT_REMOTE_ROOT "$HERE/.env")}"
-fi
-
-REMOTE="${REMOTE:-${PORTAL_HITL_ROBOT_REMOTE:-}}"
-REMOTE_ROOT="${REMOTE_ROOT:-${PORTAL_HITL_ROBOT_REMOTE_ROOT:-~/workspace}}"
-
-if [[ -z "$REMOTE" ]]; then
-    echo "REMOTE is empty. Set PORTAL_HITL_ROBOT_REMOTE in .env or pass REMOTE=user@host." >&2
-    exit 1
-fi
-
 IGNORE_FILE="$HERE/scripts/deploy.rsyncignore"
 
-echo "[deploy] remote: $REMOTE:$REMOTE_ROOT"
+echo "[deploy] remote: $REMOTE:$DEST"
 echo "[deploy] ensuring remote directory exists ..."
-ssh "$REMOTE" "mkdir -p '$REMOTE_ROOT/portal-hitl'"
+# Unquoted on the remote side so a leading ~ expands there. rsync below
+# expands it the same way; quoting only here would create a literal "~"
+# directory in the remote home.
+ssh "$REMOTE" "mkdir -p $DEST"
 
-echo "[deploy] syncing portal-hitl/ ..."
-rsync -azP --delete --exclude-from="$IGNORE_FILE" "$HERE/" "$REMOTE:$REMOTE_ROOT/portal-hitl/"
+echo "[deploy] syncing portal-rebot/ ..."
+rsync -azP --delete --exclude-from="$IGNORE_FILE" "$HERE/" "$REMOTE:$DEST/"
 
 cat <<EOF
 
 [deploy] done. On the robot:
 
-  cd $REMOTE_ROOT/portal-hitl
+  cd $DEST
   uv sync
 
-  # First-time calibration walks through ranges of motion when robot.py
+  # First-time calibration walks through ranges of motion when the robot
   # connects with no saved file. Saved files live under
   # ~/.cache/huggingface/lerobot/calibration/ keyed by B601_ID.
 
-  uv run robot.py
+  uv run robot
 
 EOF

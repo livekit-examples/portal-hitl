@@ -1,43 +1,51 @@
 [project]
-name = "portal-hitl"
+name = "portal-rebot"
 version = "0.1.0"
-description = "Human-in-the-loop teleop + recording on top of livekit-portal. A Seeed reBot Arm B601-DM (6-DOF + gripper) follower driven by a remote operator with a reBot 102 leader; the operator side records LeRobotDataset episodes and can hand off to a policy."
+description = "Teleop data collection on top of livekit-portal. A Seeed reBot Arm B601-DM (6-DOF + gripper) follower driven by a remote operator with a reBot 102 leader; a third, listen-only operator records state, video and actions to one aligned .rrd timeline."
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "livekit-portal>=0.2.3",
+    # `rerun`: the recorder's `RrdSink`. `lerobot`: `livekit-portal convert`,
+    # which turns those archives into a LeRobot v3 dataset offline.
+    "livekit-portal[rerun,lerobot]>=0.3.0rc1",
     "livekit-api>=0.7",
-    # Stock PyPI lerobot. The `training` extra pulls the dataset stack
-    # (datasets/pandas/pyarrow/torchcodec) the recorder + trainer need
-    # plus wandb/accelerate. We run ACT/Diffusion only; both import
-    # cleanly from `lerobot.policies` and need no transformers, so we
-    # avoid the VLA extras (and their transformers==5.3.0 pin) entirely.
-    "lerobot[training]>=0.5",
-    # Seeed reBot Arm B601-DM follower (CAN / Damiao motors via motorbridge)
-    # and reBot 102 leader (FashionStar smart servos via
-    # motorbridge-smart-servo). Published to PyPI by Seeed-Projects; see
-    # https://wiki.seeedstudio.com/rebot_arm_b601_dm_lerobot/
-    "lerobot-robot-seeed-b601>=0.1.2",
-    "lerobot-teleoperator-rebot-arm-102>=0.2.0",
-    "motorbridge>=0.3.9",
-    "motorbridge-smart-servo>=0.0.4",
-    "rerun-sdk>=0.26",
+    # Stock PyPI lerobot, for the hardware drivers only:
+    #   rebot    - the reBot Arm B601-DM follower and reBot 102 leader
+    #              drivers, plus their motorbridge / motorbridge-smart-servo
+    #              backends. Both arms ship upstream as of lerobot 0.6.0, so
+    #              the out-of-tree lerobot-robot-seeed-b601 and
+    #              lerobot-teleoperator-rebot-arm-102 plugins are no longer
+    #              needed. See https://wiki.seeedstudio.com/rebot_arm_b601_dm_lerobot/
+    #   hardware - camera and motor bus backends.
+    # We avoid the VLA extras (and their transformers pin) entirely.
+    "lerobot[rebot,hardware]>=0.6.1",
     "numpy>=1.24",
     "python-dotenv>=1",
     "opencv-python>=4.5",
     "pynput>=1.7",
-    "torch>=2.2",
 ]
 
 [dependency-groups]
-# Cloud training environments don't need livekit / pynput / opencv / the
-# hardware plugins — training only reads the recorded dataset. The
-# `training` extra carries the dataset stack + wandb/accelerate. Keep
-# this slice minimal so `uv sync --only-group train` produces a small
-# trainer image.
-train = [
-    "lerobot[training]>=0.5",
-]
+dev = []
 
-# Flat layout on purpose — `uv run robot.py` / `uv run teleoperator.py` /
-# `uv run policy.py` from this directory. No CLI, no package, no wheel.
-# Read the scripts top-to-bottom; they are the example.
+# One package, three peers. Each is installed as a console script, so `uv run
+# robot` / `uv run teleoperator` / `uv run recorder` work from anywhere in the
+# repo; `python -m portal_rebot.robot` is the same entry point. `robot` drives
+# the arm, `teleoperator` drives the human's leader arm, and `recorder` is a
+# Portal observer that writes the session archive. The wire contract is
+# `portal.yaml` at the repo root. Read the three `__main__.py` files
+# top-to-bottom, they are the example. Archives become a LeRobot v3 dataset
+# offline with `uv run livekit-portal convert`, which Portal ships.
+[project.scripts]
+robot = "portal_rebot.robot.__main__:run"
+teleoperator = "portal_rebot.teleoperator.__main__:run"
+recorder = "portal_rebot.recorder.__main__:run"
+
+[build-system]
+requires = ["uv_build>=0.9,<0.10"]
+build-backend = "uv_build"
+
+# Flat layout: the package sits at the repo root next to `portal.yaml`, which
+# `common.py` resolves one level up from itself.
+[tool.uv.build-backend]
+module-name = "portal_rebot"
+module-root = ""
