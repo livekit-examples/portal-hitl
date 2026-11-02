@@ -7,8 +7,7 @@ reuse_stale_frames: true
 
 videos:
   - { name: arm_camera, codec: h264, max_bitrate_kbps: 20000, screencast: true }
-  # Overhead camera: uncomment on every host and set B601_CAM_OVERHEAD on the robot.
-  # - { name: overhead_camera, codec: h264, max_bitrate_kbps: 20000, screencast: true }
+  - { name: overhead_camera, codec: h264, max_bitrate_kbps: 20000, screencast: true }
 
 state:
   - { name: shoulder_pan.pos, dtype: f32 }

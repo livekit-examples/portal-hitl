@@ -26,8 +26,8 @@
 <path d="M550,300 L750,300" fill="none" stroke="#666666" stroke-width="1" stroke-linecap="round"/>
 <path class="trace" d="M550,300 L750,300" fill="none" stroke="#1FD5F9" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="28 172" style="--len:200px;animation-duration:1.20s;animation-delay:1.75s"/>
 <rect x="325.5" y="100.5" width="199" height="49" rx="6" fill="#070707" stroke="#30302F"/>
-<text x="425.0" y="122.0" text-anchor="middle" font-family="'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#FFFFFF">Wrist video</text>
-<text x="425.0" y="139.0" text-anchor="middle" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#999999">h264 media track</text>
+<text x="425.0" y="122.0" text-anchor="middle" font-family="'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#FFFFFF">Arm + overhead video</text>
+<text x="425.0" y="139.0" text-anchor="middle" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#999999">two h264 media tracks</text>
 <rect x="325.5" y="175.5" width="199" height="49" rx="6" fill="#070707" stroke="#30302F"/>
 <text x="425.0" y="197.0" text-anchor="middle" font-family="'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#FFFFFF">State · Actions</text>
 <text x="425.0" y="214.0" text-anchor="middle" font-family="'CommitMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#999999">data · keypoints</text>

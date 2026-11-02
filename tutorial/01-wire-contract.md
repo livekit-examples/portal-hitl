@@ -4,7 +4,8 @@ Every participant needs the same camera tracks, state fields, action fields,
 and observation rate. Put them in one file so the robot, human, policy, and
 recorder share the same definition: [`portal.yaml`](../portal.yaml).
 
-This rig declares one wrist camera and seven joint positions: six arm joints
+This rig declares two cameras, one on the arm and one overhead, and seven joint
+positions: six arm joints
 plus the gripper. Both state and action use `.pos` fields in degrees.
 
 ```yaml
@@ -13,6 +14,7 @@ fps: 30
 reuse_stale_frames: true
 videos:
   - { name: arm_camera, codec: h264, max_bitrate_kbps: 20000, screencast: true }
+  - { name: overhead_camera, codec: h264, max_bitrate_kbps: 20000, screencast: true }
 ```
 
 The complete file also lists the seven `f32` fields under `state` and `action`.
@@ -42,12 +44,10 @@ inter-frame prediction but can delay state when video exceeds available
 bandwidth. PNG and RAW use the same channel with larger payloads. See
 [Running the rig](07-running-the-rig.md#configuration) for settings.
 
-## Add a camera
+## Cameras
 
-Add its track to `portal.yaml` on every host and configure its device through
-`B601_CAM_<TRACK>`, dropping the `_camera` suffix. For an overhead camera,
-uncomment the `overhead_camera` line in `portal.yaml` and set
-`B601_CAM_OVERHEAD`.
+Each track's device comes from `B601_CAM_<TRACK>`, dropping the `_camera`
+suffix: `B601_CAM_ARM` and `B601_CAM_OVERHEAD`.
 
 Every declared camera must publish. The human operator waits for a frame from
 each before assigning observation anchors; synchronized observations for the

@@ -5,7 +5,7 @@ policy, and record human corrections for the next training run.
 
 ## Set up
 
-You need a B601-DM follower with a wrist camera, a reBot 102 leader arm, a
+You need a B601-DM follower with an arm camera and an overhead camera, a reBot 102 leader arm, a
 LiveKit server, Python 3.12, and `uv`. Run the robot on the follower host,
 teleop on the leader host, and the recorder wherever you have disk space.
 ACT inference can run on another machine in the same room.
@@ -18,8 +18,9 @@ uv sync
 ```
 
 Fill in the LiveKit credentials and room and the leader serial port. The
-follower CAN port and camera default to `/dev/ttyACM0` and `/dev/video0`; add
-`B601_PORT` or `B601_CAM_ARM` if yours differ. Keep `portal.yaml` identical on
+follower CAN port and cameras default to `/dev/ttyACM0`, `/dev/video0` (arm),
+and `/dev/video2` (overhead); set `B601_PORT`, `B601_CAM_ARM`, or
+`B601_CAM_OVERHEAD` if yours differ. Keep `portal.yaml` identical on
 all hosts. Values in `.env.local` override `.env`; the deploy script copies both.
 
 On Linux, use `ls /dev/serial/by-id/` to find arm ports and
@@ -186,7 +187,7 @@ shell values. Relative output paths use the working directory.
 | `B601_PORT` | `/dev/ttyACM0` | CAN adapter port, or the `canN` channel for socketcan |
 | `B601_CAN_ADAPTER` | `damiao` | `damiao` = USB-serial dongle; `socketcan` = a `canN` channel |
 | `B601_DM_SERIAL_BAUD` | `921600` | |
-| `B601_CAM_<TRACK>` | `/dev/video0`, `/dev/video2`, … | one per video track; trailing `_camera` dropped and uppercased (`arm_camera` → `B601_CAM_ARM`). Linux: `/dev/videoN`. macOS: an integer index. |
+| `B601_CAM_ARM`, `B601_CAM_OVERHEAD` | `/dev/video0`, `/dev/video2` | Arm and overhead camera devices. Linux: `/dev/videoN`. macOS: an integer index. |
 | `B601_CAM_WIDTH` / `_HEIGHT` | `640` / `480` | |
 | `B601_CAM_MAX_FRAME_AGE_MS` | `500` | how old a buffered frame may be before the tick logs it stale and serves it anyway |
 | `B601_BUS_ERRORS_BEFORE_RECONNECT` | `5` | Consecutive motor I/O failures before rebuilding the bus. |

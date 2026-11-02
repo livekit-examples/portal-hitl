@@ -24,9 +24,8 @@ action = await hardware.run(leader.get_action)
 op.send_action(action, in_reply_to_ts_us=view.anchor())
 ```
 
-`View.anchor()` is the oldest of the latest camera timestamps. With the default
-single camera, it names the latest wrist frame. With several cameras, it follows
-the slowest view; it does not make their capture times simultaneous. It returns
+`View.anchor()` is the oldest of the latest camera timestamps, so it follows the
+slower of the two views; it does not make their capture times simultaneous. It returns
 `None` until all cameras have produced a frame.
 
 <picture>

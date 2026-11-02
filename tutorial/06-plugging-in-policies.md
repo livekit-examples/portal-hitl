@@ -17,8 +17,8 @@ The dataset root supplies `meta/info.json`. State and action names are read in
 training order and checked against `portal.yaml`. Do not alphabetize joint
 names: normalization vectors and output tensors use the dataset’s order.
 
-Camera names come from the checkpoint’s input features. A checkpoint that needs
-an overhead camera cannot run with only the wrist track declared.
+Camera names come from the checkpoint’s input features, and each must be a
+track in `portal.yaml`.
 
 ## Follow one inference step
 

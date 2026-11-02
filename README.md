@@ -6,7 +6,7 @@ Let a policy attempt a task, take over with a leader arm when it needs help,
 and record the correction. Use those recordings to train a policy, then repeat.
 
 A reBot 102 leader arm controls the follower over a LiveKit room. An ACT policy
-trained on your takes joins as another operator. A separate observer records state, wrist video, actions, and
+trained on your takes joins as another operator. A separate observer records state, arm and overhead video, actions, and
 episode markers to a Rerun archive; Portal converts that archive into a LeRobot
 v3 dataset for training.
 
@@ -63,7 +63,7 @@ test/                   # hardware-free checks
 ## Requirements at a glance
 
 - A LiveKit server with URL, API key, and API secret.
-- A B601-DM follower with a wrist camera and a reBot 102 leader arm.
+- A B601-DM follower with an arm camera and an overhead camera, and a reBot 102 leader arm.
 - Python 3.12 and `uv`.
 - Disk space for recording and a CUDA machine for training ACT.
 

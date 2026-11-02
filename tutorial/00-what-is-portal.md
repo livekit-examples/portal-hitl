@@ -14,14 +14,14 @@ may control the robot.
 
 | Process | Portal role | What it does |
 |---|---|---|
-| `uv run robot` | Robot | Publishes joint state and wrist video; applies accepted actions |
+| `uv run robot` | Robot | Publishes joint state and both camera feeds; applies accepted actions |
 | `uv run teleoperator` | Operator | Reads the leader arm and lets you switch control |
 | `src/policies/act/inference.py` | Operator | Produces actions from an ACT checkpoint |
 | `uv run recorder` | Observer | Records streams and episode markers without driving |
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="images/hitl-room-dark.svg">
-  <img alt="The robot, human teleoperator, ACT policy, and recorder in one LiveKit room, sharing wrist video, state and actions, the active_operator attribute and the robot clock." src="images/hitl-room-light.svg" width="100%">
+  <img alt="The robot, human teleoperator, ACT policy, and recorder in one LiveKit room, sharing camera video, state and actions, the active_operator attribute and the robot clock." src="images/hitl-room-light.svg" width="100%">
 </picture>
 
 The human and policy use the same operator interface. The robot accepts actions

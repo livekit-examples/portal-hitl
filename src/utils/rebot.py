@@ -316,8 +316,8 @@ class _StepLimiter:
 def build_follower(tracks: Sequence[str], fps: int) -> RebotB601Follower:
     """Build the follower with one camera per `portal.yaml` video track.
 
-    Track `arm_camera` reads its device from `B601_CAM_ARM`, defaulting to
-    /dev/video0, /dev/video2, and so on. Linux forces V4L2, because other
+    `arm_camera` reads its device from `B601_CAM_ARM` (default /dev/video0)
+    and `overhead_camera` from `B601_CAM_OVERHEAD` (default /dev/video2). Linux forces V4L2, because other
     OpenCV backends can ignore the requested format and size.
     """
     width, height = env_int("B601_CAM_WIDTH", 640), env_int("B601_CAM_HEIGHT", 480)
