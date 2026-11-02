@@ -61,7 +61,6 @@ async def main() -> None:
     parser.add_argument("--dataset-root", type=Path, required=True, help="Training dataset with meta/info.json")
     parser.add_argument("--task", default=os.environ.get("PORTAL_DATA_TASK", "reBot B601 manipulation"))
     args = parser.parse_args()
-    logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper())
 
     url, room = required_env("LIVEKIT_URL"), required_env("LIVEKIT_ROOM")
     cfg = OperatorConfig.from_yaml_file(CONFIG_PATH, room)
@@ -96,47 +95,39 @@ async def main() -> None:
     op = Operator(cfg)
     worker = HardwareThread("act-inference")
     latest_obs = None
-    generation = 0
+    control_changed = True
 
     def on_observation(obs):
         nonlocal latest_obs
         latest_obs = obs
 
     def on_active_operator_changed(identity):
-        nonlocal generation
-        generation += 1
+        nonlocal control_changed
+        control_changed = True
         print(f"[policy-act] active operator: {identity}")
 
     op.on_observation(on_observation)
     op.on_active_operator_changed(on_active_operator_changed)
-    was_active = False
-    last_generation = -1
     try:
         await op.connect(url, mint_token(IDENTITY, room))
         me = op.local_identity()
         print(f"[policy-act] ready on {device}; press c in teleop to select {me}")
         async for _ in pace(fps):
-            if op.active_operator() != me:
-                was_active = False
-                continue
             obs = latest_obs
-            if obs is None or any(camera not in obs.frames for camera in cameras):
+            if op.active_operator() != me or obs is None or any(c not in obs.frames for c in cameras):
                 continue
-            if not was_active or last_generation != generation:
+            if control_changed:
+                # Drop the actions ACT queued before the handoff.
+                control_changed = False
                 await worker.run(policy.reset)
-                was_active = True
-                last_generation = generation
-            before = generation
             try:
                 action = await worker.run(infer, obs)
             except Exception:
                 logging.exception("ACT inference failed")
                 continue
-            # A handoff during inference invalidates this result, even if control returned.
-            if before == generation and op.active_operator() == me:
+            # A handoff during inference invalidates this result, even if control came back.
+            if not control_changed:
                 op.send_action(action, in_reply_to_ts_us=obs.timestamp_us)
-            else:
-                was_active = False
     except (KeyboardInterrupt, asyncio.CancelledError):
         print("\n[policy-act] stopping")
     finally:

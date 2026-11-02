@@ -30,16 +30,6 @@ class Frame:
     timestamp_us: int
 
 
-class RecordingPreview:
-    """Captures what the window was told to show."""
-
-    def __init__(self):
-        self.shown: list[tuple[list[str], int]] = []
-
-    def show_task(self, tasks, active):
-        self.shown.append((list(tasks), active))
-
-
 def check_view(c: Checks) -> None:
     view = View(["arm_camera", "overhead_camera"])
     c.check(view.anchor() is None, "no anchor before any frame")
@@ -57,22 +47,10 @@ def check_view(c: Checks) -> None:
 
 def check_task_switch(c: Checks) -> None:
     tasks = ["Pick up the red cube", "Stack it on the blue", "Push the tray left"]
-    preview = RecordingPreview()
-    tally = Tally(tasks)
-
-    active, task = select_task(tasks, 0, "2", False, preview, tally)
-    c.check((active, task) == (1, tasks[1]), "a digit selects that task", f"{active} {task!r}")
-    c.check(preview.shown == [(tasks, 1)], "and the window is told, not just the terminal")
-
-    active, task = select_task(tasks, 1, "2", False, preview, tally)
-    c.check((active, task) == (1, tasks[1]) and len(preview.shown) == 1,
-            "re-selecting the active task is a no-op")
-
-    active, task = select_task(tasks, 1, "7", False, preview, tally)
-    c.check((active, task) == (1, tasks[1]), "a digit past the end of the list changes nothing")
-
-    active, task = select_task(tasks, 0, "3", True, preview, tally)
-    c.check((active, task) == (0, tasks[0]),
+    c.check(select_task(tasks, 0, "2", False) == 1, "a digit selects that task")
+    c.check(select_task(tasks, 1, "2", False) == 1, "re-selecting the active task is a no-op")
+    c.check(select_task(tasks, 1, "7", False) == 1, "a digit past the end of the list changes nothing")
+    c.check(select_task(tasks, 0, "3", True) == 0,
             "switching is refused mid-take, so no span is labelled two things")
 
 
@@ -84,9 +62,7 @@ def check_tally(c: Checks) -> None:
     c.check(tally.line(0) == "1 episode of 'Pick'", "and singular at one", tally.line(0))
     tally.record(0)
     tally.record(1)
-    c.check((tally.count(0), tally.count(1)) == (2, 1), "counts are per task",
-            f"{tally.count(0)} / {tally.count(1)}")
-    c.check(len(tally.summary()) == 2, "the shutdown summary covers every task")
+    c.check(tally.counts == [2, 1], "counts are per task", str(tally.counts))
 
 
 def check_hotkeys(c: Checks) -> None:

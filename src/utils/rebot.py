@@ -1,9 +1,8 @@
-"""Seeed reBot Arm B601-DM follower: Damiao CAN motors plus USB cameras.
+"""Seeed reBot Arm B601-DM follower (Damiao CAN motors, USB cameras) and reBot 102 leader.
 
-Hardware glue only, so the main script is the Portal flow alone. The driver ships
-in stock lerobot (the `rebot` extra) and exposes 7 joints with `.pos` keys in
-degrees. See tutorial/02-robot-loop.md for the reasoning behind the
-three wrappers below.
+The lerobot driver exposes 7 joints as `.pos` keys in degrees. Three wrappers
+keep a hardware hiccup from stopping the control loop or snapping the arm; see
+tutorial/02-robot-loop.md.
 """
 from __future__ import annotations
 
@@ -17,17 +16,10 @@ from typing import Sequence
 import numpy as np
 from lerobot.cameras import Cv2Backends, Cv2Rotation
 from lerobot.cameras.opencv import OpenCVCameraConfig
-from lerobot.robots.rebot_b601_follower import (
-    RebotB601Follower,
-    RebotB601FollowerRobotConfig,
-)
+from lerobot.robots.rebot_b601_follower import RebotB601Follower, RebotB601FollowerRobotConfig
+from lerobot.teleoperators.rebot_102_leader import RebotArm102Leader, RebotArm102LeaderTeleopConfig
 
 from _common import env_camera_id, env_float, env_int, env_str, required_env
-
-from lerobot.teleoperators.rebot_102_leader import (
-    RebotArm102Leader,
-    RebotArm102LeaderTeleopConfig,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -35,20 +27,11 @@ _STALE_CEILING_MS = 60_000
 
 
 class _ResilientCamera:
-    """Stops a camera hiccup from tearing down the control loop.
+    """Serves the last good frame through a camera hiccup and reconnects in the background.
 
-    `read_latest()` raises TimeoutError past `max_age_ms` and RuntimeError once
-    the background read thread has died; either one, raised mid-
-    `get_observation()`, throws away the motor state already read that tick. So
-    serve the last good frame across the gap and reconnect on a background
-    thread. `None` comes back only before the first frame ever arrives, which
-    `split_state_frames` drops.
-
-    It also reports `is_connected` True while holding a buffered frame, because
-    `RebotB601Follower` guards its motor I/O on `all(cam.is_connected)` -- a
-    camera blip would otherwise raise DeviceNotConnectedError out of the *motor*
-    calls. Before the first frame the true device state shows through, so a real
-    startup failure surfaces.
+    A raising camera would otherwise throw away the motor state read that tick.
+    It also reports `is_connected` while it holds a frame, because the follower
+    refuses motor I/O when any camera is disconnected.
     """
 
     def __init__(self, name: str, cam, max_age_ms: float, reconnect_interval_s: float = 2.0,
@@ -57,12 +40,9 @@ class _ResilientCamera:
         self._cam = cam
         self._max_age_ms = max_age_ms
         self._reconnect_interval_s = reconnect_interval_s
-        # A camera alive but no longer producing only ever raises TimeoutError,
-        # which alone would serve the same frozen frame forever. ~1s at 30fps.
+        # A hung camera only times out; reconnect it after ~1s of that.
         self._stale_before_reconnect = stale_before_reconnect
         self._consecutive_stale = 0
-        # Grabbed before install() shadows cam.read_latest. Never re-grab: that
-        # attribute now points at us and would recurse forever.
         self._orig_read_latest = cam.read_latest
         self.last_frame: np.ndarray | None = None
         self._last_reconnect = 0.0
@@ -79,8 +59,7 @@ class _ResilientCamera:
         try:
             self.last_frame = self._orig_read_latest(*args, **kwargs)
         except TimeoutError as exc:
-            # A frame is buffered, just older than our bar: take it anyway, a
-            # stale frame beats a hole in the row.
+            # Older than our bar, but a stale frame beats a hole in the row.
             logger.warning("%s: %s - serving stale frame", self._name, exc)
             try:
                 self.last_frame = self._orig_read_latest(max_age_ms=_STALE_CEILING_MS)
@@ -116,12 +95,8 @@ class _ResilientCamera:
                 self._cam.disconnect()
             except Exception:
                 pass  # already down; connect() is what matters
-            # Connect's UNDECORATED body: `OpenCVCamera.connect` is wrapped in
-            # @check_if_already_connected, which tests the very `is_connected`
-            # we patch to report True while holding a frame, so the decorated
-            # call raises DeviceAlreadyConnectedError on every reconnect that
-            # is ever needed. warmup=False so a flaky device cannot stall this
-            # thread; the loop keeps serving the last frame until one lands.
+            # The undecorated connect: its already-connected guard reads the
+            # `is_connected` we patched, and would refuse every reconnect.
             connect = type(self._cam).connect
             getattr(connect, "__wrapped__", connect)(self._cam, warmup=False)
             logger.info("%s: reconnected", self._name)
@@ -132,9 +107,7 @@ class _ResilientCamera:
 
 
 def _patch_is_connected(cam_cls: type) -> None:
-    """Wrap a camera class's `is_connected` getter, once. The property lives on
-    the class, so an instance attribute cannot shadow it; instances without the
-    back-reference fall through unchanged."""
+    """Wrap the camera class's `is_connected` property, once; unmanaged instances are unaffected."""
     if getattr(cam_cls, "_resilient_patched", False):
         return
     original = cam_cls.is_connected
@@ -148,20 +121,11 @@ def _patch_is_connected(cam_cls: type) -> None:
 
 
 class _ResilientBus:
-    """Stops a motor I/O error from tearing down the control loop.
+    """Keeps a motor I/O error from ending the control loop.
 
-    A failing CAN call otherwise raises through `HardwareThread.run`, past the
-    tick loop's `except` (which catches only cancellation) and into its
-    `finally`: the rig quits, mid-motion, over something usually gone by the
-    next tick. So: swallow, count, report, and rebuild the bus after
-    `errors_before_reconnect` consecutive failures.
-
-    **The reconnect runs inline, on the calling thread** -- the opposite of
-    `_ResilientCamera`. Every follower call funnels through one
-    `HardwareThread` worker precisely so two can never overlap on the serial
-    port, and rebuilding from anywhere else would tear the port out from under
-    an in-flight transaction, which is what corrupts a CAN adapter. The tick
-    blocks for the duration, and that is correct.
+    Errors are counted and reported, and the bus is rebuilt after
+    `errors_before_reconnect` in a row. The rebuild runs inline on the
+    hardware thread, unlike the camera's, so it never overlaps a transaction.
     """
 
     def __init__(self, follower: RebotB601Follower, *, errors_before_reconnect: int,
@@ -169,8 +133,6 @@ class _ResilientBus:
         self._follower = follower
         self._errors_before_reconnect = errors_before_reconnect
         self._reconnect_interval_s = reconnect_interval_s
-        # Grabbed before install() shadows them. Bound methods, so they keep
-        # working across a bus rebuild.
         self._orig_get_observation = follower.get_observation
         self._orig_send_action = follower.send_action
         self._consecutive = 0
@@ -193,10 +155,7 @@ class _ResilientBus:
             observation = self._orig_get_observation()
         except Exception as exc:
             self._failed("get_observation", exc)
-            # Cameras hang off USB, not the CAN bus, so they are still good --
-            # and video through a motor fault is what lets the operator see the
-            # arm has stopped following rather than guess.
-            return self._frames_only()
+            return self._frames_only()  # cameras are on USB, not the CAN bus
         self._consecutive = 0
         return observation
 
@@ -222,9 +181,7 @@ class _ResilientBus:
         self.errors += 1
         self._consecutive += 1
         now = time.monotonic()
-        # The first failure always speaks, then at most once a second: a bus
-        # that stays down fails every tick, and 30 identical lines a second
-        # bury the reconnect result that matters.
+        # Report the first failure, then at most once a second.
         if self._consecutive == 1 or now - self._last_report >= 1.0:
             self._last_report = now
             logger.warning("motor bus: %s failed (%s) - %d consecutive",
@@ -237,17 +194,10 @@ class _ResilientBus:
         self._reconnect()
 
     def _reconnect(self) -> None:
-        """Rebuild the CAN bus and leave the cameras alone.
+        """Rebuild the CAN bus with the driver's own connect, cameras left alone.
 
-        `follower.connect()` cannot be used as-is: it is wrapped in
-        `@check_if_already_connected`, and it calls `cam.connect()` on every
-        camera -- which `_ResilientCamera` reports as connected while it holds a
-        frame, so the call raises `DeviceAlreadyConnectedError` and never
-        reaches `configure()`, the part that re-enables the motors. Emptying
-        `cameras` runs the driver's own bus path and skips the camera path,
-        which beats copying the bus construction into this repo where it would
-        rot. `calibrate=False` because a control loop must never block on
-        `input()`.
+        The cameras are hidden for the call because they report connected and
+        would make it refuse. `calibrate=False`: a control loop must never block on `input()`.
         """
         logger.warning("motor bus: rebuilding after %d consecutive failures", self._consecutive)
         for motor in self._follower.motors.values():
@@ -280,31 +230,18 @@ class _ResilientBus:
 
 
 class _StepLimiter:
-    """Rate-limits the commanded target: it may advance at most `max_step_deg`
-    per command, so the arm is never asked to jump.
+    """Moves the commanded target at most `max_step_deg` per command, so the arm never jumps.
 
-    **It ramps the target, and does NOT clamp the tracking error.** The B601
-    runs `control_mode = "mit"`, so torque *is* the position error --
-    `kp * (target - present)` -- and clamping that error caps FORCE, not speed:
-    at 5 degrees, too little to hold a gravity-loaded joint, which stops moving
-    while the stiffer ones keep working. Ramping the target leaves the motor
-    full authority to reach each setpoint and bounds only how fast the setpoint
-    travels.
+    It ramps the TARGET and never clamps the tracking error: under MIT control
+    torque is `kp * (target - present)`, so clamping the error would cap force
+    and leave a gravity-loaded joint stuck. `max_lag_deg` only stops the target
+    running away from an arm that cannot follow.
 
-    The target is re-seeded from the present position at startup, after a bus
-    rebuild, and whenever commands stop for `_IDLE_RESEED_S`, which is what
-    makes every discontinuity a ramp from where the arm actually is.
-    `max_lag_deg` is the only present-relative bound left, and it is a windup
-    guard rather than a speed limit. `uncapped` joints skip the ramp entirely;
-    the gripper is there because it is not under impedance control at all
-    (`gripper_control_mode = "force_pos"`), so its force is already bounded.
-
-    See tutorial/02-robot-loop.md -- getting any of this backwards
-    freezes the arm.
+    The ramp restarts from the present pose at startup, after a bus rebuild, and
+    after a pause in commands. `uncapped` joints (the gripper, whose force is
+    already bounded) skip it. See tutorial/02-robot-loop.md.
     """
 
-    # Longer than this without a command and the arm may have been moved,
-    # released, or have sagged, so the ramp restarts from reality.
     _IDLE_RESEED_S = 0.5
 
     def __init__(self, follower: RebotB601Follower, max_step_deg: float,
@@ -364,13 +301,9 @@ class _StepLimiter:
             if present is None or name.removesuffix(".pos") in self.uncapped:
                 stepped[name] = goal
                 continue
-            # An unseeded joint starts its ramp at the present position, which
-            # is what makes startup and recovery ramps rather than jumps.
             base = self._target.get(name, present)
             move = max(-self.max_step_deg, min(self.max_step_deg, goal - base))
             target = base + move
-            # Windup guard, not a speed limit: keep the setpoint from running
-            # away from an arm that cannot follow it.
             target = max(present - self.max_lag_deg,
                          min(present + self.max_lag_deg, target))
             if target != goal:
@@ -383,14 +316,9 @@ class _StepLimiter:
 def build_follower(tracks: Sequence[str], fps: int) -> RebotB601Follower:
     """Build the follower with one camera per `portal.yaml` video track.
 
-    Each track's device comes from `B601_CAM_<TRACK>`, dropping a trailing
-    `_camera` and uppercasing (`arm_camera` -> `B601_CAM_ARM`), defaulting to
-    /dev/video0, /dev/video2, ...
-
-    Linux forces V4L2: lerobot defaults to CAP_ANY and OpenCV's auto-picker can
-    land on a backend (often GStreamer) that opens the device but no-ops
-    S_FOURCC/S_FMT, showing up as fourcc='' and a 1920-wide frame that refuses
-    to drop to 640.
+    Track `arm_camera` reads its device from `B601_CAM_ARM`, defaulting to
+    /dev/video0, /dev/video2, and so on. Linux forces V4L2, because other
+    OpenCV backends can ignore the requested format and size.
     """
     width, height = env_int("B601_CAM_WIDTH", 640), env_int("B601_CAM_HEIGHT", 480)
     cameras = {
@@ -417,14 +345,12 @@ def build_follower(tracks: Sequence[str], fps: int) -> RebotB601Follower:
     for name, cam in follower.cameras.items():
         _ResilientCamera(name, cam, max_age_ms).install()
 
-    # Order matters: the limiter goes on first so it captures the driver's own
-    # methods, then the bus wraps the limiter. A motor fault is then caught
-    # OUTSIDE the ramp, which can never be what raises.
+    # The limiter wraps the driver, and the bus wraps the limiter, so motor
+    # faults are caught outside the ramp.
     limiter = _StepLimiter(
         follower,
         max_step_deg=env_float("B601_MAX_STEP_DEG", 5.0),
         max_lag_deg=env_float("B601_MAX_LAG_DEG", 30.0),
-        # "gripper" mirrors the driver's own GRIPPER_MOTOR.
         uncapped=env_str("B601_UNCAPPED_JOINTS", "gripper").split(","),
     )
     limiter.install()
@@ -434,8 +360,7 @@ def build_follower(tracks: Sequence[str], fps: int) -> RebotB601Follower:
         reconnect_interval_s=env_float("B601_BUS_RECONNECT_INTERVAL_S", 2.0),
     )
     bus.install()
-    # A rebuild re-enables torque with the arm wherever gravity left it, so the
-    # ramp restarts from there rather than from the pre-fault target.
+    # After a rebuild the arm is wherever gravity left it; ramp from there.
     bus.on_recovered = limiter.reseed
     follower.resilient_bus = bus
     follower.step_limiter = limiter
@@ -448,20 +373,14 @@ def build_follower(tracks: Sequence[str], fps: int) -> RebotB601Follower:
 def split_state_frames(
     observation: dict, tracks: Sequence[str]
 ) -> tuple[dict[str, float], dict[str, np.ndarray]]:
-    """Split the follower's flat observation into (state, frames).
-
-    The follower writes `.pos`, `.vel` and `.torq` per motor, but `portal.yaml`
-    publishes only the 7 `.pos` values. `OpenCVCameraConfig` defaults to
-    color_mode=RGB, which is the layout Portal expects.
-    """
+    """Split the follower's observation into (state, frames). Only `.pos` values are published."""
     state = {k: float(v) for k, v in observation.items() if k.endswith(".pos")}
     frames = {t: observation[t] for t in tracks if observation.get(t) is not None}
     return state, frames
 
 
 def build_leader() -> RebotArm102Leader:
-    """`joint_directions` / `joint_ranges` keep their package defaults, which
-    already match the B601 follower's ranges."""
+    """The package's default joint ranges already match the B601 follower."""
     kwargs: dict = dict(
         id=env_str("REBOT102_LEADER_ID", "rebot_arm_102_leader"),
         port=required_env("REBOT102_LEADER_PORT"),

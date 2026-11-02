@@ -1,47 +1,36 @@
 """Operator side: reBot 102 leader -> Portal actions, and a window to fly by.
 
-Run with `uv run src/teleoperator.py`. Each tick reads one action off the leader and
-sends it; nothing is recorded here. `uv run src/recorder.py` is an observer in the
-same room that writes the archive, and this process only marks where the
-takes are, with keypoints, when a hotkey is pressed.
+Run with `uv run src/teleoperator.py`. Each tick reads one action off the leader
+and sends it. Nothing is recorded here: `src/recorder.py` writes the archive, and
+this process marks where takes start and end with keypoints.
 
-Every action declares the frame it answers in `in_reply_to_ts_us` -- a FRAME
-timestamp, because the operator flies on the video, and it is generally a tick
-or two behind the state on the wire. See tutorial/03-operator-loop.md.
+Every action names the frame it answers in `in_reply_to_ts_us`: the operator
+flies on video, which is usually a tick or two behind the state.
+See tutorial/03-operator-loop.md.
 
-Hotkeys: `c` cycle control, `r` toggle recording, `[` end and mark the take discarded, `x` quit.
+Hotkeys: `c` cycle control, `r` toggle recording, `[` discard the take, `x` quit,
+`1`-`9` switch task.
 """
 from __future__ import annotations
 
 import asyncio
-import logging
-import os
 import time
 from collections import deque
 from typing import Optional
 
-from _common import (
-    CONFIG_PATH,
-    TELEOPERATOR_IDENTITY,
-    HardwareThread,
-    env_int,
-    load_env,
-    mint_token,
-    pace,
-    required_env,
-)
-
+from _common import CONFIG_PATH, TELEOPERATOR_IDENTITY, HardwareThread, env_int, load_env, mint_token, pace, required_env
 from livekit.portal import Operator, OperatorConfig, VideoFrameData, frame_bytes_to_numpy_rgb
 from utils.hotkeys import Hotkeys, input_backend_warning
 from utils.rebot import build_leader
 from utils.rerun_view import Preview
 from utils.session import prompt_tasks
 
-logger = logging.getLogger(__name__)
+# The keypoint types `livekit-portal convert` cuts episodes at by default.
+RECORDING, IDLE, DISCARD = "recording", "idle", "discard"
 
 
 async def cycle_active_operator(op: Operator, me: str) -> None:
-    """Claim control, or cycle through the other connected operators."""
+    """Claim control, or pass it to the next connected operator."""
     ring = [me, *sorted(op.operators())]
     current = op.active_operator()
     target = ring[(ring.index(current) + 1) % len(ring)] if current in ring else me
@@ -52,21 +41,12 @@ async def cycle_active_operator(op: Operator, me: str) -> None:
         print(f"[teleop] could not change control: {exc}; press c to retry")
 
 
-# The keypoint types `livekit-portal convert` cuts episodes at by default.
-RECORDING, IDLE, DISCARD = "recording", "idle", "discard"
+async def send_keypoint(op: Operator, kind: str, task: str, at_ts_us: Optional[int]) -> bool:
+    """Mark a take boundary at the frame the operator sees. True when a recorder got it.
 
-
-async def send_keypoint(op: Operator, kind: str, payload: dict, at_ts_us: Optional[int]) -> bool:
-    """Mark a boundary on the recorder's timeline. True when an observer got it.
-
-    Filed at the frame the operator is looking at, so the boundary lands where
-    they saw it. Loud on failure -- a keypoint that went nowhere means the
-    operator is demonstrating into the void -- and never raising, because
-    losing a boundary costs one demonstration while taking the loop down
-    mid-motion costs the arm.
-    """
+    Never raises: a lost boundary costs one take, a crashed loop costs the arm."""
     try:
-        if await op.send_keypoint(kind, payload, timestamp_us=at_ts_us):
+        if await op.send_keypoint(kind, {"task_description": task}, timestamp_us=at_ts_us):
             return True
         print("[teleop] NOT RECORDED: no recorder in the room")
     except Exception as exc:
@@ -75,60 +55,39 @@ async def send_keypoint(op: Operator, kind: str, payload: dict, at_ts_us: Option
 
 
 class Tally:
-    """How many episodes have been recorded, per task.
-
-    Counted when a recorder RECEIVED the closing keypoint, not when the key is
-    pressed: a take the recorder never heard about is not an episode.
-    Discarded takes are not counted either.
-    """
+    """Episodes recorded per task, counted only when a recorder confirmed the take."""
 
     def __init__(self, tasks: list[str]) -> None:
-        self._tasks = tasks
-        self._counts = [0] * len(tasks)
+        self.tasks = tasks
+        self.counts = [0] * len(tasks)
 
     def record(self, index: int) -> None:
-        self._counts[index] += 1
+        self.counts[index] += 1
         print(f"[teleop] recorded -- {self.line(index)}")
 
-    def count(self, index: int) -> int:
-        return self._counts[index]
-
     def line(self, index: int) -> str:
-        count = self._counts[index]
-        return f"{count} episode{'' if count == 1 else 's'} of {self._tasks[index]!r}"
-
-    def summary(self) -> list[str]:
-        return [f"  {n + 1}  {self.line(n)}" for n in range(len(self._tasks))]
+        count = self.counts[index]
+        return f"{count} episode{'' if count == 1 else 's'} of {self.tasks[index]!r}"
 
 
-def select_task(tasks: list[str], active: int, key: str, recording: bool,
-                preview, tally: "Tally") -> tuple[int, str]:
-    """Handle a `1`-`9` press. Returns the (index, description) to use from now on.
-
-    Refused while a take is in flight, so every recorded span is single-task.
-    """
+def select_task(tasks: list[str], active: int, key: str, recording: bool) -> int:
+    """The task index after pressing digit `key`. Refused mid-take, so each take has one task."""
     index = int(key) - 1
     if not 0 <= index < len(tasks):
         print(f"[teleop] no task {key}; this session has {len(tasks)}")
-        return active, tasks[active]
-    if index == active:
-        return active, tasks[active]
-    if recording:
+        return active
+    if recording and index != active:
         print(f"[teleop] recording; press r to end the take before switching to {key}")
-        return active, tasks[active]
-
-    print(f"[teleop] task {key}: {tally.line(index)} so far")
-    preview.show_task(tasks, index)
-    return index, tasks[index]
+        return active
+    return index
 
 
 class View:
-    """What the operator is looking at, and how far behind it is.
+    """What the operator is looking at.
 
-    `anchor()` is the timestamp every action and every keypoint is filed
-    against: the OLDEST of the newest per-camera timestamps, withheld until
-    every camera has produced. It must name an instant at which all of what the
-    operator sees was current, and with one view still blank there is none.
+    `anchor()` is the timestamp every action and keypoint is filed against: the
+    oldest of the newest frame per camera, so everything on screen was current
+    at that instant. None until every camera has produced a frame.
     """
 
     def __init__(self, cameras: list[str]) -> None:
@@ -146,8 +105,7 @@ class View:
         return min(self._newest.values())
 
     def report(self) -> str:
-        """Age and rate on this machine's clock alone, so no offset between the
-        two hosts leaks in."""
+        """Frame age and rate, on this machine's clock only."""
         if not self._received:
             return "no frames yet"
         age_ms = (time.perf_counter() - self._received[-1]) * 1e3
@@ -167,9 +125,7 @@ def clock_report(op: Operator) -> str:
 
 
 async def main() -> None:
-    logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper())
     load_env()
-
     url = required_env("LIVEKIT_URL")
     room = required_env("LIVEKIT_ROOM")
     cfg = OperatorConfig.from_yaml_file(CONFIG_PATH, room)
@@ -178,7 +134,7 @@ async def main() -> None:
 
     tasks = prompt_tasks()
     active = 0
-    task = tasks[active]
+    tally = Tally(tasks)
     leader = build_leader()
     op = Operator(cfg)
     hardware = HardwareThread("leader")
@@ -191,29 +147,24 @@ async def main() -> None:
 
     for cam in cameras:
         op.on_video_frame(cam, on_video_frame)
-    op.on_active_operator_changed(lambda i: print(f"[teleop] active operator now: {i}"))
+    op.on_active_operator_changed(lambda identity: print(f"[teleop] active operator now: {identity}"))
 
     leader.connect()
     print(f"[teleop] connecting to {url} as '{TELEOPERATOR_IDENTITY}' in room '{room}' ...")
     await op.connect(url, mint_token(TELEOPERATOR_IDENTITY, room))
     me = op.local_identity()
 
-    marks: set[asyncio.Task] = set()
+    in_flight: set[asyncio.Task] = set()
 
-    def mark(kind: str, then=None) -> None:
-        """Fire and forget: the leader arm cannot wait on the send. The task is
-        held so the loop cannot collect it mid-flight, and `then` runs only if
-        a recorder got the keypoint."""
-        payload = {"task_description": task}
-        at_ts_us = view.anchor()
+    def mark(kind: str, on_recorded=None) -> None:
+        """Send a keypoint without stalling the leader arm. `on_recorded` runs once a recorder has it."""
+        async def deliver(task: str, at_ts_us: Optional[int]) -> None:
+            if await send_keypoint(op, kind, task, at_ts_us) and on_recorded:
+                on_recorded()
 
-        async def deliver() -> None:
-            if await send_keypoint(op, kind, payload, at_ts_us) and then is not None:
-                then()
-
-        held = asyncio.create_task(deliver())
-        marks.add(held)
-        held.add_done_callback(marks.discard)
+        sending = asyncio.create_task(deliver(tasks[active], view.anchor()))
+        in_flight.add(sending)  # hold a reference until it finishes
+        sending.add_done_callback(in_flight.discard)
 
     print(f"[teleop] connected as '{me}' @ {fps} fps")
     for number, name in enumerate(tasks, start=1):
@@ -222,12 +173,10 @@ async def main() -> None:
     print(f"[teleop] hotkeys: c=cycle operator  r=record  [=discard the take  x=quit{switch}")
     preview.show_task(tasks, active)
 
-    tally = Tally(tasks)
     hotkeys = Hotkeys(global_tap=env_int("PORTAL_HOTKEYS_GLOBAL", 1) != 0)
     hotkeys.start()
     if (why := input_backend_warning()) is not None:
-        where = ("press them in THIS terminal" if hotkeys.terminal_active
-                 else "and there is no terminal to fall back on")
+        where = "press them in THIS terminal" if hotkeys.terminal_active else "and there is no terminal to fall back on"
         print(f"[teleop] global hotkeys will not fire ({why}); {where}")
     elif not hotkeys.terminal_active:
         print("[teleop] no terminal to read keys from; the global tap is the only one")
@@ -235,39 +184,31 @@ async def main() -> None:
     recording = False
     try:
         async for tick in pace(fps):
-            stop = False
-            for key in hotkeys.drain():
-                if key == "x":
-                    stop = True
-                elif key == "c":
-                    await cycle_active_operator(op, me)
-                elif key == "r":
-                    recording = not recording
-                    if recording:
-                        print(f"[teleop] recording {task!r}")
-                        mark(RECORDING)
-                    else:
-                        # Counted in the callback, so the tally only moves on a
-                        # take the recorder confirmed it heard about.
-                        mark(IDLE, then=lambda n=active: tally.record(n))
-                elif key.isdigit():
-                    active, task = select_task(
-                        tasks, active, key, recording, preview, tally)
-                elif key == "[":
-                    # Say so rather than no-op: a silent key reads as a dead
-                    # keyboard.
-                    if not recording:
-                        print("[teleop] nothing being recorded to discard")
-                    else:
-                        recording = False
-                        print("[teleop] discarded")
-                        mark(DISCARD)
-            if stop:
+            keys = hotkeys.drain()
+            if "x" in keys:
                 break
+            for key in keys:
+                if key == "c":
+                    await cycle_active_operator(op, me)
+                elif key == "r" and not recording:
+                    recording = True
+                    print(f"[teleop] recording {tasks[active]!r}")
+                    mark(RECORDING)
+                elif key == "r":
+                    recording = False
+                    mark(IDLE, on_recorded=lambda index=active: tally.record(index))
+                elif key == "[" and not recording:
+                    print("[teleop] nothing being recorded to discard")
+                elif key == "[":
+                    recording = False
+                    print("[teleop] discarded")
+                    mark(DISCARD)
+                elif key.isdigit() and (index := select_task(tasks, active, key, recording)) != active:
+                    active = index
+                    print(f"[teleop] task {key}: {tally.line(active)} so far")
+                    preview.show_task(tasks, active)
 
             action = await hardware.run(leader.get_action)
-            # Portal stamps it on the robot's clock; the anchor says which
-            # frame it answered.
             op.send_action(action, in_reply_to_ts_us=view.anchor())
 
             if tick and tick % (fps * 5) == 0:
@@ -278,12 +219,11 @@ async def main() -> None:
     finally:
         hotkeys.stop()
         print("[teleop] this session:")
-        for line in tally.summary():
-            print(f"[teleop] {line}")
+        for index in range(len(tasks)):
+            print(f"[teleop]   {index + 1}  {tally.line(index)}")
         if recording:
-            # The recorder is still writing; leave the band closed rather than
-            # ending the archive in the middle of a take.
-            await send_keypoint(op, DISCARD, {"task_description": task}, view.anchor())
+            # Close the take rather than leave the archive ending mid-take.
+            await send_keypoint(op, DISCARD, tasks[active], view.anchor())
         preview.close()
         try:
             await op.disconnect()

@@ -10,6 +10,7 @@ Keep it small and readable. The README leads with the numbered `tutorial/`.
 - `src/_common.py` holds shared environment, token, and scheduling helpers.
 - `src/utils/` contains hardware, preview, hotkey, and task-prompt details.
 - `src/policies/act/` contains training, inference, and a SkyPilot example.
+- `src/policies/dream1/` runs Dream Labs' Dream-1 zero-shot through its client IK.
 - `test/` checks behavior without hardware.
 
 Use plain scripts (`uv run src/robot.py`), not a package or console entry points.
@@ -33,6 +34,7 @@ Update affected chapters with behavior changes.
 
 ```bash
 uv run --group train python -m unittest test.test_act
+uv run --group dream python -m unittest test.test_dream1
 uv run python -m test.test_teleop
 uv run python -m test.test_resilience
 # With livekit-server --dev:

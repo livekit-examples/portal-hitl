@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import logging
 import os
 import pathlib
 import time
@@ -27,11 +28,12 @@ RECORDER_IDENTITY = "recorder"
 
 
 def load_env() -> None:
-    """`.env` then `.env.local` (which overrides), from the repo root and cwd."""
+    """Load `.env` then `.env.local` (which overrides) from the repo root and cwd, then set up logging."""
     for directory in (ROOT, pathlib.Path.cwd()):
         for name, override in ((".env", False), (".env.local", True)):
             if (path := directory / name).exists():
                 load_dotenv(path, override=override)
+    logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper())
 
 
 def required_env(name: str) -> str:
@@ -84,12 +86,9 @@ def mint_token(identity: str, room: str, ttl_hours: int = 6) -> str:
 async def pace(fps: int) -> AsyncIterator[int]:
     """Yield a tick index at `fps`, as `async for tick in pace(30)`.
 
-    A tick that runs over budget snaps the schedule forward instead of
-    accumulating drift. The `sleep(0)` on that path is load-bearing: `async
-    for` is not itself a suspension point, so a consistently overrunning tick
-    body would turn this into a busy-loop that never services the Portal
-    callbacks it depends on -- the arm stops following while the loop still
-    looks healthy. See tutorial/07-running-the-rig.md#troubleshooting.
+    A late tick moves the schedule forward instead of piling up drift. Even
+    then it yields with `sleep(0)`: without that, a body that always overruns
+    would starve the Portal callbacks it depends on.
     """
     interval = 1.0 / fps
     next_tick = time.perf_counter()
@@ -107,16 +106,10 @@ async def pace(fps: int) -> AsyncIterator[int]:
 
 
 class HardwareThread:
-    """Runs one device's blocking calls on a single dedicated thread.
+    """Runs one device's blocking calls on one dedicated thread.
 
-    Both tick bodies are synchronous device I/O, which on the event loop is
-    what pushes a tick past its interval; awaiting it here leaves the loop free
-    for the whole duration.
-
-    One worker, not a pool. The device's calls share its serial bus and must
-    never overlap -- `send_action` interleaved with `get_observation` corrupts
-    both -- and awaiting each call in turn on a single thread is what
-    guarantees that, independently of how the tick body is ordered later.
+    The event loop stays free while the device works, and a single worker
+    means two calls can never overlap on the device's serial bus.
     """
 
     def __init__(self, name: str) -> None:
@@ -126,49 +119,39 @@ class HardwareThread:
         return await asyncio.get_running_loop().run_in_executor(self._pool, fn, *args)
 
     def close(self) -> None:
-        """Wait for the in-flight call before letting the caller disconnect.
-        Cancelling `run()` abandons the await, not the thread, and
-        disconnecting a device mid-transaction is how you corrupt a CAN adapter
-        on ctrl-c."""
+        """Wait for the call in flight, so the device is never disconnected mid-transaction."""
         self._pool.shutdown(wait=True)
 
 
 class TickBudget:
-    """Rolling tick-cost accounting behind the robot's 5s diagnostic line.
+    """Tick timings behind the robot's 5s diagnostic line.
 
-    `device_ms` is time inside the driver calls, `tick_ms` the whole body. They
-    separate the two ways to miss the budget -- a slow CAN bus versus slow
-    publishing -- which need different fixes.
+    `device_ms` is time inside the driver calls and `tick_ms` the whole body, so
+    a slow CAN bus and slow publishing show up separately.
     """
 
     def __init__(self, fps: int) -> None:
-        self.interval_ms = 1000.0 / fps
+        self.fps = fps
         self.reset()
 
     def reset(self) -> None:
-        self._ticks = 0
-        self._over = 0
-        self._device_sum = self._device_max = 0.0
-        self._tick_sum = self._tick_max = 0.0
-        self._t0 = time.perf_counter()
+        self.device_ms: list[float] = []
+        self.tick_ms: list[float] = []
+        self.started = time.perf_counter()
 
     def record(self, device_ms: float, tick_ms: float) -> None:
-        self._ticks += 1
-        if tick_ms > self.interval_ms:
-            self._over += 1
-        self._device_sum += device_ms
-        self._device_max = max(self._device_max, device_ms)
-        self._tick_sum += tick_ms
-        self._tick_max = max(self._tick_max, tick_ms)
+        self.device_ms.append(device_ms)
+        self.tick_ms.append(tick_ms)
 
     def report(self) -> Optional[str]:
-        elapsed = time.perf_counter() - self._t0
-        if not self._ticks or elapsed <= 0:
+        ticks = len(self.tick_ms)
+        if not ticks:
             return None
-        line = (f"{self._ticks / elapsed:.1f} fps of {1000.0 / self.interval_ms:.0f} "
-                f"requested; device {self._device_sum / self._ticks:.0f}ms "
-                f"(worst {self._device_max:.0f}ms), "
-                f"tick {self._tick_sum / self._ticks:.0f}ms (worst {self._tick_max:.0f}ms) "
-                f"of {self.interval_ms:.0f}ms budget; {self._over}/{self._ticks} over")
+        budget_ms = 1000.0 / self.fps
+        over = sum(ms > budget_ms for ms in self.tick_ms)
+        line = (f"{ticks / (time.perf_counter() - self.started):.1f} fps of {self.fps} requested; "
+                f"device {sum(self.device_ms) / ticks:.0f}ms (worst {max(self.device_ms):.0f}ms), "
+                f"tick {sum(self.tick_ms) / ticks:.0f}ms (worst {max(self.tick_ms):.0f}ms) "
+                f"of {budget_ms:.0f}ms budget; {over}/{ticks} over")
         self.reset()
         return line

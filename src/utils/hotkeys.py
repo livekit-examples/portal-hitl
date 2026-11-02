@@ -1,11 +1,8 @@
-"""Keyboard input for the operator loop, off the tick's back.
+"""Keyboard input for the operator loop, read on background threads.
 
-Two taps, whichever delivers: pynput taps the windowing system, so a key lands
-while the operator is looking at the rerun window -- and every platform can
-starve that tap silently (see `input_backend_warning`). A terminal read has the
-opposite profile: it works under Wayland and over SSH where pynput cannot, but
-only while the terminal has focus. `drain()` merges both and the tick loop
-never blocks. See tutorial/03-operator-loop.md.
+Two sources, merged by `drain()`: a global tap (pynput) that hears keys while
+the rerun window has focus, and the terminal, which also works under Wayland
+and over SSH. See tutorial/03-operator-loop.md.
 """
 from __future__ import annotations
 
@@ -23,26 +20,17 @@ from pynput import keyboard
 # `1`-`9` select the session's task; see src/utils/session.py for why nine.
 KEYS = {"c", "r", "[", "x"} | {str(digit) for digit in range(1, 10)}
 
-# One keystroke can reach both taps at once -- X11 with the terminal focused
-# sees it on XRecord and on stdin -- and delivered twice, `r` would toggle
-# recording straight back off. A repeat of the same key from the OTHER tap
-# inside this window is that echo; the same tap twice is a real double-tap.
+# One keystroke can reach both sources. The same key from the OTHER source
+# within this window is that echo, not a second press.
 _ECHO_WINDOW_S = 0.25
 
 
 def input_backend_warning() -> Optional[str]:
-    """Why the *global* tap will never deliver a key, when that is knowable up
-    front. The terminal tap is unaffected by all of these, so a warning here
-    means "focus the terminal", not "the hotkeys are dead".
+    """Why the global tap will silently receive nothing, when that is knowable up front.
 
-    Every platform starves the tap in its own way *without raising* -- the
-    thread starts, stays alive and receives nothing -- which is why this is
-    checked rather than waited on.
+    The terminal still works in every case; the warning means "focus the terminal".
     """
     if sys.platform == "darwin":
-        # The tap is a CGEventTap, which needs the terminal binary listed under
-        # Privacy & Security > Accessibility. pynput logs one warning from its
-        # own thread and carries on.
         try:
             from ApplicationServices import AXIsProcessTrusted
         except ImportError:
@@ -54,9 +42,6 @@ def input_backend_warning() -> Optional[str]:
         return None
 
     if sys.platform.startswith("linux"):
-        # pynput's only Linux backend is XRecord on $DISPLAY. Under Wayland that
-        # display is XWayland, which never sees keys typed into Wayland-native
-        # windows, so the tap is live and permanently empty.
         if os.environ.get("WAYLAND_DISPLAY") or (
                 os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland"):
             return ("this is a Wayland session and pynput can only tap X11 "
@@ -74,16 +59,11 @@ def input_backend_warning() -> Optional[str]:
 
 
 class _TerminalTap:
-    """Reads single keystrokes from the controlling terminal.
+    """Reads single keystrokes from the terminal.
 
-    `cbreak` rather than raw: keys arrive without ENTER but ISIG stays on, so
-    ctrl-c still reaches the process. `select` with a timeout rather than a
-    blocking read, which on a daemon thread could not be woken at shutdown --
-    the terminal restore would race the interpreter tearing down. And `os.read`
-    on the raw descriptor, never `sys.stdin.read(1)`: `sys.stdin` is buffered,
-    so one `read(1)` pulls up to 8 KB off the descriptor and keeps the rest
-    where `select` cannot see it, leaving typed keys stuck until the next
-    keystroke shakes one loose.
+    `cbreak` keeps ctrl-c working. `select` with a timeout lets the thread stop.
+    `os.read` on the raw descriptor, because buffered `sys.stdin` would hide
+    typed keys from `select`.
     """
 
     def __init__(self, deliver) -> None:
@@ -94,8 +74,7 @@ class _TerminalTap:
         self._saved = None
 
     def start(self) -> bool:
-        """False when there is no terminal to read -- a pipe, a service unit,
-        a detached process. The global tap is then the only one."""
+        """False when stdin is not a terminal."""
         try:
             if not sys.stdin.isatty():
                 return False
@@ -130,10 +109,9 @@ class _TerminalTap:
 
 
 class Hotkeys:
-    """`global_tap=False` leaves the terminal as the only source: the global tap
-    reads the whole machine, keys meant for other windows included. That is the
-    answer for a shared desktop, and what makes a test of the terminal tap
-    deterministic."""
+    """Merged key presses from both sources.
+
+    `global_tap=False` reads the terminal only; the global tap hears keys typed into any window."""
 
     def __init__(self, global_tap: bool = True) -> None:
         self._lock = threading.Lock()

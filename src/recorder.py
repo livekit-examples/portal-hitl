@@ -10,19 +10,8 @@ The archive layout is Portal's: see its docs/03-data-recording.md.
 from __future__ import annotations
 
 import asyncio
-import logging
-import os
 
-from _common import (
-    CONFIG_PATH,
-    RECORDER_IDENTITY,
-    env_int,
-    env_str,
-    load_env,
-    mint_token,
-    required_env,
-)
-
+from _common import CONFIG_PATH, RECORDER_IDENTITY, env_int, env_str, load_env, mint_token, required_env
 from livekit.portal import Observer, ObserverConfig
 from livekit.portal.recording import RrdSink
 
@@ -37,7 +26,6 @@ def status(obs: Observer) -> str:
 
 
 async def main() -> None:
-    logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper())
     load_env()
 
     url = required_env("LIVEKIT_URL")

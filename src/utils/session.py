@@ -1,12 +1,7 @@
-"""What this session is collecting: one task, or up to nine to switch between.
+"""The tasks this session collects: one, or up to nine switched with keys `1`-`9`.
 
-Task descriptions change between sessions, not between machines, so they are
-asked at startup rather than kept in `.env`. Nine is the ceiling because the
-hotkeys are the digits `1`-`9`.
-
-Unattended runs skip the questions: `PORTAL_DATA_TASKS` (semicolon-separated)
-supplies the whole list, `PORTAL_DATA_TASK` a single one, and a
-non-interactive stdin falls back to the default without asking.
+Asked at startup. `PORTAL_DATA_TASKS` (semicolon-separated) skips the
+questions, and a non-interactive stdin takes `PORTAL_DATA_TASK` or the default.
 """
 from __future__ import annotations
 
@@ -17,9 +12,7 @@ from _common import env_str
 DEFAULT_TASK = "reBot B601 manipulation"
 MAX_TASKS = 9
 
-# Semicolon, not comma: a task description is a sentence, and sentences have
-# commas in them.
-_TASKS_SEPARATOR = ";"
+_TASKS_SEPARATOR = ";"  # task descriptions are sentences, which contain commas
 
 
 def prompt_tasks() -> list[str]:
@@ -40,8 +33,7 @@ def prompt_tasks() -> list[str]:
 
     tasks = [_ask("task 1", default)]
     for number in range(2, count + 1):
-        # No default past the first: a blank second task would be a duplicate
-        # of the first, silently mislabelling every span collected under it.
+        # No default past the first: a blank would duplicate task 1's label.
         tasks.append(_ask_required(f"task {number}", fallback=f"{default} {number}"))
     return tasks
 
@@ -66,8 +58,7 @@ def _ask(label: str, default: str) -> str:
 
 
 def _ask_required(label: str, fallback: str) -> str:
-    """Keep asking until something is typed. `fallback` covers stdin closing
-    mid-prompt, which would otherwise spin."""
+    """Keep asking until something is typed; `fallback` if stdin closes."""
     while True:
         try:
             if answer := input(f"  {label}: ").strip():

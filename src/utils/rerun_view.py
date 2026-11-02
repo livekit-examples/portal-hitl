@@ -1,11 +1,7 @@
-"""The operator's window: the newest frame from each camera, and nothing else.
+"""The operator's window: the newest frame from each camera and the active task.
 
-`static=True` is the whole design. Static data in rerun is timeless -- one row
-per entity, latest wins -- so this is a live mirror at constant memory, with no
-history accumulating behind a session that runs for hours. Everything worth
-scrubbing later is in the recorder's `.rrd`. Frames go in uncompressed: the
-viewer is a local process, and a JPEG encode here would cost the tick loop more
-than it saves.
+Everything is logged `static=True`, so the viewer keeps only the latest frame
+and memory stays flat over a long session. The recorder keeps the history.
 """
 from __future__ import annotations
 
@@ -34,8 +30,6 @@ class Preview:
                 collapse_panels=True,
             ))
         except Exception as exc:
-            # No viewer binary on PATH, no display, spawn refused -- none of
-            # which is a reason to take the rig down.
             logger.warning("rerun viewer unavailable (%s); continuing without a window", exc)
             self._stream = None
 
@@ -48,9 +42,7 @@ class Preview:
             logger.debug("rerun log failed", exc_info=True)
 
     def show_task(self, tasks: Sequence[str], active: int) -> None:
-        """The active task, in the window the operator is actually looking at: a
-        hotkey whose only confirmation is a line in a terminal behind the window
-        is a hotkey you cannot tell landed."""
+        """Show the task list in the window, so a task switch is visible where the operator looks."""
         if self._stream is None:
             return
         if len(tasks) == 1:
