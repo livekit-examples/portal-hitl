@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="900" height="300" viewBox="0 0 900 300" role="img" aria-labelledby="t d">
 <title id="t">One take, two operators</title>
-<desc id="d">Press r to open a take. Pressing c hands control from teleop to a policy (Dream-1 or ACT) and back for a correction. The recorder writes the whole time, and one episode keeps actions from both senders.</desc>
+<desc id="d">Press r to open a take. Pressing c hands control from teleop to a policy such as ACT and back for a correction. The recorder writes the whole time, and one episode keeps actions from both senders.</desc>
 <style>
 .trace { opacity: 0; filter: drop-shadow(0 0 2px #1FD5F9); animation-name: trace; animation-timing-function: linear; animation-iteration-count: infinite; }
 @keyframes trace { 0% { stroke-dashoffset: 28px; opacity: 1; } 85% { opacity: 1; } 100% { stroke-dashoffset: calc(-1 * var(--len)); opacity: 0; } }

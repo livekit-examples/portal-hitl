@@ -1,14 +1,14 @@
 # 7. Running the rig
 
-This chapter runs the full cycle: try Dream-1 zero-shot, collect demonstrations
-and corrections, train ACT, and record its corrections for the next run.
+This chapter runs the full cycle: collect demonstrations, train ACT, run the
+policy, and record human corrections for the next training run.
 
 ## Set up
 
 You need a B601-DM follower with a wrist camera, a reBot 102 leader arm, a
 LiveKit server, Python 3.12, and `uv`. Run the robot on the follower host,
 teleop on the leader host, and the recorder wherever you have disk space.
-Policies can run on another machine in the same room.
+ACT inference can run on another machine in the same room.
 
 From the repository root on each host:
 
@@ -17,8 +17,9 @@ cp .env.example .env
 uv sync
 ```
 
-Fill in the LiveKit credentials and room, follower CAN port, leader serial
-port, camera device, and command step limit. Keep `portal.yaml` identical on
+Fill in the LiveKit credentials and room and the leader serial port. The
+follower CAN port and camera default to `/dev/ttyACM0` and `/dev/video0`; add
+`B601_PORT` or `B601_CAM_ARM` if yours differ. Keep `portal.yaml` identical on
 all hosts. Use `.env.local` for machine-specific overrides.
 
 On Linux, use `ls /dev/serial/by-id/` to find arm ports and
@@ -30,23 +31,6 @@ saved calibration or `c` then ENTER to recalibrate.
 Calibration files live under `~/.cache/huggingface/lerobot/calibration/`, in
 `robots/rebot_b601_follower/<B601_ID>.json` and
 `teleoperators/rebot_102_leader/<REBOT102_LEADER_ID>.json`.
-
-## Try Dream-1 zero-shot
-
-Do this first to test a task before collecting data. Set up the API key and arm
-file as in [Chapter 6](06-plugging-in-policies.md#set-it-up-once), then start
-the robot, recorder, and teleoperator as below and run:
-
-```bash
-uv run --group dream src/policies/dream1/inference.py --task "pick up the red cube" --dry-run
-```
-
-Press `c` in teleop to select `policy-dream-1`; targets print only while it holds
-control, and nothing moves. When they follow the arm, restart without `--dry-run`. Dream-1
-joins as `policy-dream-1`. Use the same keys as in
-[Run a policy and collect corrections](#run-a-policy-and-collect-corrections):
-press `r` to start a take and `c` to hand it control or take it back. Change
-`--task` to try another task. The corrected takes convert like any other session.
 
 ## Collect demonstrations
 
@@ -127,12 +111,10 @@ sky launch src/policies/act/skypilot.yaml -e DATASET_REPO_ID=you/your-dataset
 The example uses a Nebius H100 and an `/outputs` object-storage mount. Change
 the bucket and output directory for your own account and experiment.
 
-## Run a policy and collect corrections
+## Run ACT and collect corrections
 
-Start the robot, recorder, and teleoperator again. For Dream-1, run the command
-from [Try Dream-1 zero-shot](#try-dream-1-zero-shot). For ACT, make the
-checkpoint and training dataset metadata available on the inference host, then
-run:
+Start the robot, recorder, and teleoperator again. On the inference host, make
+the checkpoint and training dataset metadata available, then run:
 
 ```bash
 uv run --group train python src/policies/act/inference.py \
@@ -145,9 +127,9 @@ that order of availability. On the teleoperator:
 
 1. Press `c` to select the human and position the arm.
 2. Press `r` to start a take.
-3. Press `c` to hand control to the policy.
+3. Press `c` to hand control to ACT.
 4. Press `c` when you need to correct it with the leader arm.
-5. Press `c` to let the policy continue, or `r` to end the take.
+5. Press `c` to let ACT continue, or `r` to end the take.
 
 Recording spans the handoffs. Move the leader near the follower’s current pose
 before taking over. The command ramp limits target changes, but does not replace
@@ -241,21 +223,6 @@ target preserves torque, while a small tracking-error clamp can prevent motion.
 | `NUM_WORKERS` | `16` | Dataset workers |
 | `VIDEO_BACKEND` | `pyav` | Dataset video decoder; use `torchcodec` with compatible Torch/FFmpeg libraries |
 
-### Dream-1
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `DREAM_ARM_FILE` | required | Arm file from `dreamcli tcp` |
-| `DREAM_CAMERAS` | `wrist_r=arm_camera` | Map Dream-1 roles (`overhead`, `wrist_l`, `wrist_r`) to `portal.yaml` tracks; unmapped roles are black |
-| `DREAM_CHECKPOINT` | `dreamlabs/dream-1-beta` | Model to request |
-| `DREAM_MAX_JOINT_RAD_S` | `0.5` | Maximum speed of the commanded target, also the ramp-in at takeover |
-| `DREAM_GRIPPER_OPEN_DEG` | `-270` | Gripper angle Dream-1’s “fully open” maps to |
-
-The API key is read from `~/.dreamlabs/credentials` or `DREAM_API_KEY`. `--task`
-defaults to `PORTAL_DATA_TASK`. `--dry-run` prints targets without sending actions.
-
-### ACT inference
-
 Inference requires `--checkpoint` and `--dataset-root`. `--task` defaults to
 `PORTAL_DATA_TASK`, then `reBot B601 manipulation`.
 It reads LiveKit settings and `PORTAL_FPS` as the teleoperator does, selects
@@ -269,14 +236,6 @@ CUDA/MPS/CPU automatically, and waits for the `c` handoff before producing actio
   Accessibility permission for the terminal on macOS. Relaunch after granting it.
 - **No observations in ACT:** every declared camera must publish; the checkpoint
   must use cameras available in `portal.yaml`.
-- **Dream-1 refuses to start:** the arm file’s tool center point is missing or
-  was not confirmed in `dreamcli tcp`. A missing API key fails at startup with
-  `no api key`; check `~/.dreamlabs/credentials` or set `DREAM_API_KEY`.
-- **Dream-1 waits at startup:** `pool_warming` means the model is loading; the
-  policy retries. IK also compiles for about 10 s.
-- **Dream-1 grasps miss by a fixed offset:** re-measure the tool center point on
-  the real gripper. If the motion is mirrored or offset, check that the joint order,
-  signs, and zeros in `portal.yaml` match the URDF using `--dry-run`.
 - **Motor-bus errors:** check the CAN adapter, USB cable, and port. Reconnection
   re-energizes the arm; keep the leader still during recovery.
 - **Low frame rate:** compare device and tick times in robot diagnostics. Lower

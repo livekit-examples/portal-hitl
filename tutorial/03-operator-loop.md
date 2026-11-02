@@ -42,7 +42,7 @@ clock.
 ## Claim control explicitly
 
 Press `c` to claim control. Press it again to cycle to another connected
-operator, such as `policy-dream-1` or `policy-act`. With only teleop connected, `c` selects teleop.
+operator, such as `policy-act`. With only teleop connected, `c` selects teleop.
 There is no background loop that reclaims the gate after you hand it away.
 
 The leader keeps publishing while the policy drives, but the robot rejects

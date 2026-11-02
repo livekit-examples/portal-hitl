@@ -5,15 +5,14 @@ This tutorial builds a human-in-the-loop (HITL) training pipeline with
 Let a policy attempt a task, take over with a leader arm when it needs help,
 and record the correction. Use those recordings to train a policy, then repeat.
 
-A reBot 102 leader arm controls the follower over a LiveKit room. A policy joins
-as another operator: Dream-1 zero-shot from a task prompt, or ACT trained on
-your takes. A separate observer records state, wrist video, actions, and
+A reBot 102 leader arm controls the follower over a LiveKit room. An ACT policy
+trained on your takes joins as another operator. A separate observer records state, wrist video, actions, and
 episode markers to a Rerun archive; Portal converts that archive into a LeRobot
 v3 dataset for training.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="tutorial/images/hitl-loop-dark.svg">
-  <img alt="Start with Dream-1 zero-shot and correct it, or collect teleop demos; convert the archives to a LeRobot dataset, train ACT, then run ACT while you correct it. Corrections feed the next training run." src="tutorial/images/hitl-loop-light.svg" width="100%">
+  <img alt="Collect teleop demos, convert the archives to a LeRobot dataset, train ACT, then run ACT while you correct it. Corrections feed the next training run." src="tutorial/images/hitl-loop-light.svg" width="100%">
 </picture>
 
 ## The tutorial
@@ -28,57 +27,22 @@ Read the chapters in order to build the loop, one Portal concept at a time.
 | [03. Operator loop](tutorial/03-operator-loop.md) | Read the leader, display video, and anchor actions |
 | [04. HITL recording](tutorial/04-hitl-recording.md) | Record both operators and build a training dataset |
 | [05. Handoff](tutorial/05-handoff.md) | Switch between human and policy without ending a take |
-| [06. Plugging in a policy](tutorial/06-plugging-in-policies.md) | Run Dream-1 zero-shot, then ACT, as Portal operators |
+| [06. Plugging in a policy](tutorial/06-plugging-in-policies.md) | Run ACT as a Portal operator |
 | [07. Running the rig](tutorial/07-running-the-rig.md) | Set up, collect, train, run inference, and record corrections |
 
 For the commands to run the full loop, start with
 [07. Running the rig](tutorial/07-running-the-rig.md).
 
-## Try Dream-1 first
-
-[Dream-1](https://dreamlabs.ai/research/dream-1/) is Dream Labs’ pretrained
-robot-control model, which they call a **World Action Model**. It uses camera
-images, robot state, and a language instruction to predict robot actions. Here,
-the model runs through Dream Labs’ hosted API, while its Python client converts
-predicted hand poses into joint targets for the B601.
-
-**Zero-shot** means you can try it without collecting demonstrations or training
-a model for your task first. You still need to set up and calibrate the rig;
-success depends on the task, camera views, and hardware. This example uses one
-arm and the `dreamlabs/dream-1-beta` checkpoint.
-
-With a [Dream Labs API key](https://platform.dreamlabs.ai/api-keys) and
-the robot, recorder, and teleoperator running:
-
-```bash
-uv sync --group dream
-uv run --group dream dreamcli tcp     # once per gripper; set DREAM_ARM_FILE to the path it prints
-uv run --group dream src/policies/dream1/inference.py --task "pick up the red cube" --dry-run
-```
-
-Press `c` in teleop to select `policy-dream-1`: the dry run prints targets but
-sends no actions. When they follow the arm, drop `--dry-run` and select it again
-to hand it control. Press `c` again to correct it. See
-[06. Plugging in a policy](tutorial/06-plugging-in-policies.md#dream-1-zero-shot).
-
 ## What you can use this example for
 
-- **Explore a task before collecting a dataset.** Try a prompt such as “pick up
-  the red cube” and observe where Dream-1 needs help. Simple tabletop tasks such
-  as moving an object into a tray are starting experiments, not guaranteed skills.
 - **Collect demonstrations and recoveries.** Demonstrate a whole task with the
   leader arm, or take over after a missed grasp and let the policy continue.
   Recording spans the handoff so the take includes the attempt and correction.
 - **Train a policy for your setup.** Review the takes, convert them to a LeRobot
   dataset, and train ACT (Action Chunking with Transformers) on your own camera
   views and joint actions. Run the checkpoint and collect more corrections.
-- **Try another policy through the same interface.** Dream-1 shows remote
-  inference; ACT shows a local checkpoint. Both use Portal’s observations,
-  explicit control handoff, and separate recorder.
-
-Dream-1 is optional: you can start with human demonstrations and train ACT
-directly. Corrections become data for a later training run; this example does
-not update Dream-1 or train either policy live during a session.
+- **Try another policy through the same interface.** Any model that reads
+  Portal observations and sends actions can take ACT’s place.
 
 ## Layout
 
@@ -90,7 +54,6 @@ src/
   recorder.py           # observer writing session archives
   _common.py            # environment, tokens, and pacing
   utils/                # hardware, hotkeys, preview, and task prompts
-  policies/dream1/      # inference.py: Dream-1 zero-shot, remote
   policies/act/         # train.py, inference.py, skypilot.yaml
 tutorial/               # the HITL walkthrough
 scripts/                # deployment helper
@@ -102,9 +65,7 @@ test/                   # hardware-free checks
 - A LiveKit server with URL, API key, and API secret.
 - A B601-DM follower with a wrist camera and a reBot 102 leader arm.
 - Python 3.12 and `uv`.
-- Disk space for recording.
-- For Dream-1, a Dream Labs API key and network access. For ACT, a CUDA
-  training machine.
+- Disk space for recording and a CUDA machine for training ACT.
 
 The walkthrough uses Portal 0.3’s observer recorder and offline converter.
 There is no package to install or CLI framework: run the scripts with `uv run`.

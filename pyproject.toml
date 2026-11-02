@@ -16,5 +16,3 @@ dependencies = [
 [dependency-groups]
 # Training alone needs no robot, LiveKit connection, or desktop input.
 train = ["lerobot[training]>=0.6.1"]
-# Dream-1 runs remotely; `dreamlabs` carries the client-side IK for a non-YAM arm.
-dream = ["dreamlabs>=1.0.23", "dreamlabs-client>=1.0.14"]

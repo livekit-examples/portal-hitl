@@ -4,7 +4,6 @@ Run from the repo root. ACT checks need the training dependency group:
 
 ```bash
 uv run --group train python -m unittest test.test_act
-uv run --group dream python -m unittest test.test_dream1
 uv run python -m test.test_teleop
 uv run python -m test.test_resilience
 ```
@@ -22,7 +21,6 @@ uv run python -m test.test_degraded
 | Suite | Checks |
 |---|---|
 | `test_act` | Dataset field order, tensor mapping, training arguments, existing-output handling |
-| `test_dream1` | Arm-file checks, camera roles, frame crop, unit conversion, target ramp |
 | `test_teleop` | Control cycling, frame anchors, task selection, keyboard input, preview |
 | `test_resilience` | CAN failure recovery and target-step limits |
 | `test_pubsub` | Discovery, control gate, observation transport |
