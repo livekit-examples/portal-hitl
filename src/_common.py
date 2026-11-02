@@ -17,6 +17,7 @@ os.environ.setdefault("RUST_LOG", "warn,livekit_portal::sync_buffer=error,libweb
 
 from dotenv import load_dotenv
 from livekit import api
+from livekit.portal import PortalError
 from livekit.protocol.room import RoomConfiguration
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -81,6 +82,19 @@ def mint_token(identity: str, room: str, ttl_hours: int = 6) -> str:
         .with_ttl(datetime.timedelta(hours=ttl_hours))
         .to_jwt()
     )
+
+
+async def connect_to_robot(peer: Any, url: str, identity: str, room: str) -> None:
+    """Connect an operator or observer, which returns once synced to the robot's clock.
+
+    Without a robot in the room, `connect()` raises `TimeSyncTimeout` after
+    10 s. Exit with what to do instead of a traceback.
+    """
+    try:
+        await peer.connect(url, mint_token(identity, room))
+    except PortalError.TimeSyncTimeout:
+        raise SystemExit(f"[{identity}] no robot answered in room '{room}' within 10 s; "
+                         "start `uv run robot` first") from None
 
 
 async def pace(fps: int) -> AsyncIterator[int]:

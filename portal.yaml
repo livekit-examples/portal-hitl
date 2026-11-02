@@ -6,7 +6,10 @@ fps: 30 # observation rate
 reuse_stale_frames: true
 
 # State and actions are lossy (Portal's default): a lost packet is skipped
-# instead of holding up newer ones.
+# instead of holding up newer ones, and one that arrives behind a newer one is
+# dropped. Optionally, the robot can also drop actions that arrive too late;
+# keep it above the link's one-way delay plus jitter, or most commands drop.
+# action_max_age_ms: 200
 
 videos:
   - { name: arm_camera, codec: h264, max_bitrate_kbps: 20000, screencast: true }

@@ -16,10 +16,13 @@ from livekit.portal import Action, Robot, RobotConfig
 from utils.rebot import build_follower, split_state_frames
 
 
-def diagnostics(follower, budget: TickBudget) -> Iterator[str]:
-    """The 5s console lines: achieved rate, bus health, speed cap."""
+def diagnostics(follower, budget: TickBudget, stale_actions: int) -> Iterator[str]:
+    """The 5s console lines: achieved rate, bus health, late actions, speed cap."""
     if line := budget.report():
         yield line
+    if stale_actions:
+        yield (f"link: {stale_actions} actions arrived older than action_max_age_ms in 5s"
+               " and were dropped; raise it if this keeps climbing")
     bus = follower.resilient_bus
     if bus.errors or bus.reconnects:
         yield (f"motor bus: {bus.errors} errors, {bus.reconnects} reconnects"
@@ -74,6 +77,7 @@ async def main() -> None:
     print(f"[robot] connected; cameras={list(tracks)}; streaming at {fps} fps; ctrl-c to stop")
 
     budget = TickBudget(fps)
+    stale_seen = 0  # cumulative actions_dropped_stale at the last report
 
     try:
         async for tick in pace(fps):
@@ -99,8 +103,10 @@ async def main() -> None:
             budget.record(device_ms, (time.perf_counter() - started) * 1e3)
 
             if tick and tick % (fps * 5) == 0:
-                for line in diagnostics(follower, budget):
+                stale = robot.metrics().transport.actions_dropped_stale
+                for line in diagnostics(follower, budget, stale - stale_seen):
                     print(f"[robot] {line}")
+                stale_seen = stale
     except (KeyboardInterrupt, asyncio.CancelledError):  # ctrl-c arrives as CancelledError
         print("\n[robot] stopping ...")
     finally:

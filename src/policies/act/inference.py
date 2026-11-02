@@ -16,7 +16,7 @@ from lerobot.processor.converters import policy_action_to_transition, transition
 from lerobot.processor.pipeline import DataProcessorPipeline
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from _common import CONFIG_PATH, HardwareThread, env_int, load_env, mint_token, pace, required_env
+from _common import CONFIG_PATH, HardwareThread, connect_to_robot, env_int, load_env, pace, required_env
 from livekit.portal import Operator, OperatorConfig, frame_bytes_to_numpy_rgb
 
 IDENTITY = "policy-act"
@@ -109,7 +109,7 @@ async def main() -> None:
     op.on_observation(on_observation)
     op.on_active_operator_changed(on_active_operator_changed)
     try:
-        await op.connect(url, mint_token(IDENTITY, room))
+        await connect_to_robot(op, url, IDENTITY, room)
         me = op.local_identity()
         print(f"[policy-act] ready on {device}; press c in teleop to select {me}")
         async for _ in pace(fps):

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 
-from _common import CONFIG_PATH, RECORDER_IDENTITY, env_int, env_str, load_env, mint_token, required_env
+from _common import CONFIG_PATH, RECORDER_IDENTITY, connect_to_robot, env_int, env_str, load_env, required_env
 from livekit.portal import Observer, ObserverConfig
 from livekit.portal.recording import RrdSink
 
@@ -37,7 +37,7 @@ async def main() -> None:
     # connect() returns after the first sync with the robot's clock, so every row
     # is stamped on it. Start the robot first: without it, connect() raises
     # TimeSyncTimeout after 10 s.
-    await obs.connect(url, mint_token(RECORDER_IDENTITY, room))
+    await connect_to_robot(obs, url, RECORDER_IDENTITY, room)
 
     sink = RrdSink(env_str("PORTAL_DATA_RRD_DIR", "data/sessions"),
                    jpeg_quality=env_int("PORTAL_DATA_RRD_QUALITY", 95))

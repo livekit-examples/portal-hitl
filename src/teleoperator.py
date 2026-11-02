@@ -18,7 +18,8 @@ import time
 from collections import deque
 from typing import Optional
 
-from _common import CONFIG_PATH, TELEOPERATOR_IDENTITY, HardwareThread, env_int, load_env, mint_token, pace, required_env
+from _common import (CONFIG_PATH, TELEOPERATOR_IDENTITY, HardwareThread, connect_to_robot, env_int, load_env,
+                     pace, required_env)
 from livekit.portal import Operator, OperatorConfig, VideoFrameData, frame_bytes_to_numpy_rgb
 from utils.hotkeys import Hotkeys, input_backend_warning
 from utils.rebot import build_leader
@@ -151,7 +152,15 @@ async def main() -> None:
 
     leader.connect()
     print(f"[teleop] connecting to {url} as '{TELEOPERATOR_IDENTITY}' in room '{room}' ...")
-    await op.connect(url, mint_token(TELEOPERATOR_IDENTITY, room))
+    try:
+        await connect_to_robot(op, url, TELEOPERATOR_IDENTITY, room)
+    except BaseException:
+        # Not yet in the try below, so release the leader arm and preview here.
+        preview.close()
+        op.close()
+        hardware.close()
+        leader.disconnect()
+        raise
     me = op.local_identity()
 
     in_flight: set[asyncio.Task] = set()

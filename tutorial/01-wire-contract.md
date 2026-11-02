@@ -52,6 +52,12 @@ Packets can also arrive out of order; Portal drops any state or action stamped
 behind the newest it already has from that sender, so neither stream goes
 backwards. Keypoints and control stay reliable.
 
+On a congested link, actions can also arrive in order but late. Setting
+`action_max_age_ms` in `portal.yaml` makes the robot drop actions older than
+that on arrival. It is off by default. Set it above the link's one-way delay plus
+jitter, or the robot drops most commands. The robot's 5 s report counts the
+drops.
+
 ## Cameras
 
 Each track's device comes from `B601_CAM_<TRACK>`, dropping the `_camera`
