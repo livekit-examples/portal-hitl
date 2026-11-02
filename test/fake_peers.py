@@ -3,14 +3,13 @@
 `FakeRobot` stands in for `robot/__main__.py` minus the hardware,
 `FakeOperator` for `teleoperator/__main__.py` minus the leader arm, and
 `FakeRecorder` for `recorder/__main__.py` -- which needs no stubbing at all,
-since it has no hardware: it drives the real `Archive` and the real
-`add_keypoint` handler. Each exposes `run()` so a test can drive them as tasks
-and inspect their counters afterwards.
+since it has no hardware: it is Portal's `Observer` writing through `RrdSink`.
+Each exposes `run()` so a test can drive them as tasks and inspect their
+counters afterwards.
 """
 from __future__ import annotations
 
 import asyncio
-import json
 import random
 import time
 from dataclasses import dataclass
@@ -20,6 +19,8 @@ import numpy as np
 from livekit.portal import (
     Action,
     Observation,
+    Observer,
+    ObserverConfig,
     Operator,
     OperatorConfig,
     Robot,
@@ -29,9 +30,10 @@ from livekit.portal import (
     frame_bytes_to_numpy_rgb,
 )
 
-from portal_rebot.common import RECORDER_IDENTITY, all_video_tracks, mint_token, pace
-from portal_rebot.keypoints import METHOD as KEYPOINT_METHOD
-from portal_rebot.teleoperator.__main__ import Clock, View
+from livekit.portal.recording import RrdSink
+
+from portal_rebot.common import RECORDER_IDENTITY, mint_token, pace
+from portal_rebot.teleoperator.__main__ import View
 from test._harness import (
     SEEN_ACTION_IDX,
     TICK_STATE_IDX,
@@ -41,11 +43,6 @@ from test._harness import (
     state_for_tick,
     tick_from_frame,
 )
-
-
-def all_tracks(cfg) -> list[str]:
-    """The app's own track resolution, so a codec sweep exercises what ships."""
-    return all_video_tracks(cfg)
 
 
 @dataclass
@@ -86,7 +83,7 @@ class FakeRobot:
         self.cfg = RobotConfig.from_yaml_str(config_yaml(), room)
         self.room, self.url, self.fps, self.identity = room, url, fps, identity
         self.portal = Robot(self.cfg)
-        self.tracks = all_tracks(self.cfg)
+        self.tracks = list(self.cfg.video_tracks)
         self.state_fields = [f.name for f in self.cfg.state_schema]
         self.impairment = impairment or Impairment()
 
@@ -157,15 +154,12 @@ class FakeOperator:
         self.cfg = OperatorConfig.from_yaml_str(config_yaml(), room)
         self.room, self.url, self.fps, self.identity = room, url, fps, identity
         self.portal = Operator(self.cfg)
-        self.tracks = all_tracks(self.cfg)
+        self.tracks = list(self.cfg.video_tracks)
         self.action_fields = [f.name for f in self.cfg.action_schema]
 
         self.latest_obs: Optional[Observation] = None
         self.latest_state: Optional[State] = None
         self.view = View(self.tracks)
-        # The shipped estimator, not a copy: every suite run then exercises the
-        # clock that stamps actions in production.
-        self.clock = Clock()
         # track -> (robot capture timestamp, decoded image). The timestamps
         # duplicate what `view` holds; the images are what `view` has no use
         # for and the bar decode needs.
@@ -186,7 +180,6 @@ class FakeOperator:
 
     def _on_video_frame(self, name: str, frame: VideoFrameData) -> None:
         self.view.saw(name, frame)
-        self.clock.saw(frame.timestamp_us)
         self.frames[name] = (
             frame.timestamp_us,
             frame_bytes_to_numpy_rgb(frame.data, frame.width, frame.height),
@@ -235,13 +228,12 @@ class FakeOperator:
         action[self.action_fields[SEEN_ACTION_IDX]] = float(-1 if seen is None else seen)
         return action
 
-    async def send_keypoint(self, **payload) -> str:
-        """The teleoperator's `add_keypoint`, addressed the same way: by name,
-        because Portal routes an operator's RPCs to the robot by default."""
+    async def send_keypoint(self, kind: str, **payload) -> list[str]:
+        """Filed at the frame on screen, like the teleoperator's. Returns the
+        observers that received it."""
         view = self.anchored_view()
-        payload.setdefault("at_ts_us", None if view is None else view[0])
-        return await self.portal.perform_rpc(
-            KEYPOINT_METHOD, json.dumps(payload), destination=RECORDER_IDENTITY)
+        return await self.portal.send_keypoint(
+            kind, payload, timestamp_us=None if view is None else view[0])
 
     async def run(self, ticks: int, on_tick=None) -> None:
         async for tick in pace(self.fps):
@@ -252,9 +244,7 @@ class FakeOperator:
                 self.unanchored += 1
             anchor, seen = (None, None) if view is None else view
             action = self.build_action(tick, seen)
-            if metrics := self.portal.metrics():
-                self.clock.rtt_us = metrics.rtt.rtt_us_mean or 0
-            ts_us = self.clock.now_us()
+            ts_us = self.portal.now_us()
             self.portal.send_action(action, timestamp_us=ts_us, in_reply_to_ts_us=anchor)
             self.actions_sent += 1
             if on_tick is not None:
@@ -266,42 +256,27 @@ class FakeOperator:
 
 
 class FakeRecorder:
-    """`recorder/__main__.py` with nothing stubbed out.
-
-    It has no hardware to fake, so this is the shipped flow verbatim: the
-    action subscription opt-in, the real `Archive`, and the real
-    `add_keypoint` handler. What it adds is a `run()` a test can cancel and an
-    `rrd_path` to read back.
-    """
+    """`recorder/__main__.py` with nothing stubbed out: an `Observer` on the
+    shared config, waiting for the robot's clock, writing through `RrdSink`."""
 
     def __init__(self, room: str, url: str, rrd_dir, jpeg_quality: int = 95,
                  identity: str = RECORDER_IDENTITY) -> None:
-        from portal_rebot.recorder.__main__ import keypoint_handler
-        from portal_rebot.recorder.archive import Archive
-
-        self.cfg = OperatorConfig.from_yaml_str(config_yaml(), room)
-        self.cfg.set_action_subscription(True)
         self.room, self.url, self.identity = room, url, identity
-        self.portal = Operator(self.cfg)
-        self.tracks = all_tracks(self.cfg)
-        self.archive = Archive(room, self.tracks, rrd_dir=rrd_dir, jpeg_quality=jpeg_quality)
-
-        self.portal.on_state(self.archive.log_state)
-        for name in self.tracks:
-            self.portal.on_video_frame(name, self.archive.log_frame)
-        self.portal.on_action(self.archive.log_action)
-        self.portal.register_rpc_method(KEYPOINT_METHOD, keypoint_handler(self.archive))
+        self.portal = Observer(ObserverConfig.from_yaml_str(config_yaml(), room))
+        self.sink = RrdSink(rrd_dir, jpeg_quality=jpeg_quality)
+        self._synced = asyncio.Event()
+        self.portal.on_time_synced(self._synced.set)
 
     @property
     def rrd_path(self):
-        return self.archive.rrd_path
+        return self.sink.path
 
-    async def connect(self) -> None:
+    async def connect(self, timeout_s: float = 10.0) -> None:
+        """Returns once recording, which needs the robot in the room."""
         await self.portal.connect(self.url, mint_token(self.identity, self.room))
+        await asyncio.wait_for(self._synced.wait(), timeout_s)
+        self.portal.record_to(self.sink)
 
     async def close(self) -> None:
-        """Disconnect first, so no callback can enqueue a frame the archive
-        writer has already been told to drain."""
         await self.portal.disconnect()
         self.portal.close()
-        self.archive.close()

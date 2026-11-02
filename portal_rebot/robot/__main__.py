@@ -20,7 +20,6 @@ from portal_rebot.common import (
     ROBOT_IDENTITY,
     HardwareThread,
     TickBudget,
-    all_video_tracks,
     env_int,
     load_env,
     mint_token,
@@ -55,7 +54,7 @@ async def main() -> None:
     room = required_env("LIVEKIT_ROOM")
     cfg = RobotConfig.from_yaml_file(CONFIG_PATH, room)
     fps = env_int("PORTAL_FPS", cfg.fps)
-    tracks = all_video_tracks(cfg)
+    tracks = list(cfg.video_tracks)
 
     follower = build_follower(tracks, fps)
     robot = Robot(cfg)

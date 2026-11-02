@@ -6,7 +6,7 @@ Three places, in order of how often you touch them.
    per-session choice, so `uv run teleoperator` asks for it rather than
    reading it from a file you forget to edit.
 2. **`.env`** — per-deployment: credentials, serial ports, camera
-   devices. It carries only what has no sensible default. Per-machine
+   devices, and the deployment-specific speed cap. Per-machine
    overrides go in `.env.local`, loaded after `.env` and not synced by
    the deploy script.
 3. **`portal.yaml`** — the wire contract, identical on all three peers.
@@ -30,9 +30,8 @@ spelled out where you will see it. This table is the full set.
 
 `action_subscription` is deliberately **not** here even though it is a
 loadable key. It is a local receive preference rather than part of the
-contract, and only one of the two operators wants it: the recorder sets
-`cfg.set_action_subscription(True)` in code, the teleoperator has no use for
-an echo of its own sends.
+contract, and the recorder's default as an observer — the actions of whoever
+holds the gate — is already what it wants.
 
 ### `slack`, `tolerance`, `reuse_stale_frames`
 
@@ -41,7 +40,7 @@ to frames and emits a single `Observation`. **Nothing in this repo consumes
 that path.** The recorder subscribes to the raw `on_state` /
 `on_video_frame` / `on_action` streams and files each at its own timestamp,
 so none of the three gates anything that reaches the archive. What they
-still shape is `metrics().sync`, which the recorder plots, and anything you
+still shape is `metrics().sync`, and anything you
 add later that calls `on_observation` or `get_observation` — the test peers
 do. See [architecture.md](architecture.md#two-timelines-and-why-it-is-not-one)
 for what replaced the synchronizer here.
@@ -56,9 +55,8 @@ picture, so filing the action against it is the honest thing to do.
 actually publish. The synchronizer withholds observations until every
 track has emitted at least once, and `View.anchor()` likewise withholds the
 operator's anchor until it holds a frame from *every* camera. With one track
-silent, no action carries an `in_reply_to_ts_us` at all, the recorder counts
-every one of them as `unanchored`, and the archive gets no actions
-whatsoever.
+silent, no action carries an `in_reply_to_ts_us` at all, and none of them
+can be paired with the observation it answered.
 
 ### The state and action schema
 
@@ -127,8 +125,16 @@ added latency proved to be what teleop actually noticed.
 ## Environment variables
 
 Copy `.env.example` to `.env` and fill it in. `portal_rebot/common.py` loads
-`.env` then `.env.local` (which overrides), from both the repo root and
-the cwd.
+files in this order:
+
+1. Repo-root `.env`, filling variables that are not already set.
+2. Repo-root `.env.local`, overriding existing values, including shell variables.
+3. Working-directory `.env`, filling any variables still unset.
+4. Working-directory `.env.local`, overriding existing values.
+
+When the working directory is the repo root, the same files are loaded twice.
+`portal.yaml` always comes from the repo root. Relative output paths such as
+`data/sessions` are relative to the process's working directory.
 
 ### LiveKit — required, all three peers
 
@@ -282,9 +288,9 @@ under it.
 | `PORTAL_DATA_TASK` | `reBot B601 manipulation` | prompt default for task 1 |
 | `PORTAL_DATA_TASKS` | unset | the whole list, `;`-separated, skipping the questions entirely. Semicolons because a task description is a sentence and sentences contain commas. Truncated at 9. |
 
-Whichever task is active rides on every `add_keypoint` and is drawn as the
-`state/task` band in the archive, so each span names what it was collected
-under without a lookup anywhere else. Switching is refused while a take is in
+Whichever task is active rides on each take's `recording` keypoint as
+`task_description`, so each span names what it was collected under without a
+lookup anywhere else. Switching is refused while a take is in
 flight: a span that changes task halfway is mislabelled whichever label it ends
 up with.
 
@@ -306,8 +312,8 @@ already carry P-frame artifacts, so a lossless archive of them is
 preserving a lossy source. Set `0` only if you switched the wire to `png`
 or `raw` and want the archive to be bit-exact end to end.
 
-The recorder starts writing when it joins the room, not when a keypoint
-arrives. A session file therefore holds the minutes around a demonstration
+The recorder starts writing once it has the robot's clock, not when a
+keypoint arrives. A session file therefore holds the minutes around a demonstration
 as well as the demonstration itself — which is usually where the
 explanation for a bad take is.
 

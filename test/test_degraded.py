@@ -32,9 +32,9 @@ from test._harness import (
     Checks,
     RobotProcess,
     aligned_rows,
+    archive_rows,
     fresh_room,
     pairing_mismatches,
-    read_archive,
 )
 from test.fake_peers import FakeOperator, FakeRecorder, Impairment
 
@@ -50,7 +50,7 @@ PROFILES = {
 }
 
 COLUMNS = [("rows", "rows"), ("paired", "pair"), ("unanchored", "unanc"),
-           ("lag_ms", "lag"), ("states_published", "st.pub"),
+           ("states_published", "st.pub"),
            ("frames_published", "fr.pub"), ("states_dropped", "drop"),
            ("stale_emitted", "stale"), ("mismatched", "bad")]
 
@@ -71,31 +71,28 @@ async def run_profile(name: str, imp: Impairment) -> dict:
         await operator.claim()
 
         await operator.run(WARMUP_TICKS)
-        await operator.send_keypoint(state="recording", task=f"degraded:{name}")
+        await operator.send_keypoint("recording", task_description=f"degraded:{name}")
         await operator.run(EPISODE_TICKS)
-        await operator.send_keypoint(state="idle", task=f"degraded:{name}")
+        await operator.send_keypoint("idle", task_description=f"degraded:{name}")
 
-        counts = dict(recorder.archive.counts)
-        lag_ms = recorder.archive.see_to_act_ms
-        errors = recorder.archive.poll_errors()
+        dropped = recorder.portal.metrics().observer.frames_dropped
         metrics = operator.portal.metrics()
         path = recorder.rrd_path
         await operator.close()
         await recorder.close()
 
-    table = read_archive(path)
+    _, rows = archive_rows(path)
     stats = dict(
         name=name,
-        errors=errors,
-        unanchored=counts["unanchored"],
-        lag_ms=round(lag_ms) if lag_ms is not None else -1,
+        writer_dropped=dropped,
+        unanchored=operator.unanchored,
         states_published=robot.summary.get("states_published", 0),
         frames_published=robot.summary.get("frames_published", 0),
         states_dropped=metrics.sync.states_dropped,
         stale_emitted=metrics.sync.stale_observations_emitted,
-        rows=table.num_rows,
-        paired=len(aligned_rows(table)),
-        mismatched=len(pairing_mismatches(table)),
+        rows=len(rows),
+        paired=len(aligned_rows(rows)),
+        mismatched=len(pairing_mismatches(rows)),
     )
     shutil.rmtree(rrd_dir, ignore_errors=True)
     return stats
@@ -119,8 +116,8 @@ async def main() -> int:
     print()
 
     for r in results:
-        c.check(r["errors"] == [], f"{r['name']}: archive raised no errors",
-                "; ".join(r["errors"]) or "none")
+        c.check(r["writer_dropped"] == 0, f"{r['name']}: no frame outran the writer",
+                f"{r['writer_dropped']} dropped")
         c.check(r["paired"] > 0, f"{r['name']}: rows carry a state and an action",
                 f"{r['paired']} of {r['rows']}")
         c.check(r["mismatched"] == 0, f"{r['name']}: every aligned row is correctly filed",

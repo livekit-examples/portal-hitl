@@ -19,9 +19,6 @@ from livekit.protocol.room import RoomConfiguration
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT / "portal.yaml"
 
-# Addresses, not labels: the teleoperator directs its `add_keypoint` RPC to
-# RECORDER_IDENTITY by name, because Portal routes an operator's RPCs to the
-# robot by default.
 ROBOT_IDENTITY = "robot"
 TELEOPERATOR_IDENTITY = "teleoperator"
 RECORDER_IDENTITY = "recorder"
@@ -57,17 +54,6 @@ def env_camera_id(name: str, default: str) -> int | str:
     """Camera identifier: an int index on macOS, a /dev/videoN string on Linux."""
     raw = env_str(name, default)
     return int(raw) if raw.isdigit() else raw
-
-
-def all_video_tracks(cfg) -> list[str]:
-    """Every declared video track, whatever its codec.
-
-    Portal splits them: WebRTC codecs (h264/vp8/vp9/av1/h265) land in
-    `cfg.video_tracks`, the byte-stream ones (mjpeg/png/raw) in
-    `cfg.frame_video_tracks`. Reading only the first publishes nothing at all
-    under a byte-stream codec, and every peer just waits.
-    """
-    return list(cfg.video_tracks) + [spec.name for spec in cfg.frame_video_tracks]
 
 
 def mint_token(identity: str, room: str, ttl_hours: int = 6) -> str:

@@ -13,10 +13,9 @@ From a fresh clone to a recorded session.
   operator's machine will do — but roughly 0.3 GB/hour per camera lands
   there, so a machine you would rather not fill is worth avoiding.
 - Python 3.12 (`pyproject.toml` pins `>=3.12,<3.13`) and `uv`.
-- A windowing system the hotkeys can be tapped from on the operator
-  machine: **X11** on Linux, or **Accessibility** access on macOS. pynput
-  taps the display server, and both platforms can starve that tap
-  silently — see [Known issues](#known-issues).
+- A display for the live preview. Global hotkeys need **X11** on Linux or
+  **Accessibility** access on macOS; terminal hotkeys also work over SSH
+  or on Wayland while the terminal has focus. See [Hotkeys](#hotkeys).
 
 ```bash
 git clone <this repo>
@@ -25,13 +24,14 @@ cp .env.example .env      # LIVEKIT_*, serial/CAN ports, camera devices
 uv sync
 ```
 
-`.env` holds only credentials and hardware addresses. The task you are
+Edit `.env` for your credentials, hardware addresses, and `B601_MAX_STEP_DEG`. The task you are
 collecting is asked when the teleoperator starts, and everything else has
 a default in code — see [configuration.md](configuration.md) for the full
 table.
 
-Dependencies are stock PyPI: `livekit-portal>=0.2.5` and
-`lerobot[rebot,hardware]>=0.6.1`, which carries
+The project declares two PyPI packages: `livekit-portal[rerun,lerobot]>=0.3.0rc1`
+and `lerobot[rebot,hardware]>=0.6.1`.
+The latter carries
 `lerobot.robots.rebot_b601_follower` and
 `lerobot.teleoperators.rebot_102_leader`. Both arms ship upstream as of
 lerobot 0.6.0, so no out-of-tree hardware plugins are involved. The VLA
@@ -86,7 +86,7 @@ uv run robot
 
 # Terminal 2 — wherever the disk is
 uv run recorder
-# joins, prints the .rrd it is writing, and starts recording immediately
+# joins, waits for the robot's clock, prints the .rrd it is writing
 
 # Terminal 3 — the operator's machine, with the reBot 102 leader
 uv run teleoperator
@@ -140,27 +140,27 @@ the two processes are not in the same room: check that `LIVEKIT_URL` and
 carries the RPC error verbatim. Move the leader gently on the first
 connect until you have confirmed the arm behaves the way you expect.
 
-**Start the recorder before you press `r`**, though. `add_keypoint` is
-addressed to it by name, and a boundary drawn while it is absent says so
-and goes nowhere:
+**Start the recorder before you press `r`**, though. A keypoint is only
+recorded by an observer that is in the room, and a boundary drawn while none
+is says so:
 
 ```
-[teleop] no 'recorder' in the room; that keypoint went nowhere
+[teleop] NOT RECORDED: no recorder in the room
 ```
 
-The recorder itself needs no coordination: it records from the moment it
-joins, so a late start costs you the beginning of the session and nothing
-else. The teleoperator can be restarted freely under a running recorder —
-the archive does not notice.
+The recorder itself needs no coordination: it records from the moment the
+robot's clock reaches it, so a late start costs you the beginning of the
+session and nothing else. The teleoperator can be restarted freely under a
+running recorder — the archive does not notice.
 
 ### Hotkeys
 
 | Key | Action |
 |---|---|
-| `r` | toggle the recording band — the boundaries of one demonstration |
+| `r` | start or end a take — the boundaries of one demonstration |
 | `[` | end the take and mark it discarded |
 | `1`–`9` | switch the active task, when the session has more than one |
-| `x` | clean quit — closes an open band first |
+| `x` | clean quit — discards an open take first |
 
 Keys are read two ways at once, because neither works everywhere:
 
@@ -190,14 +190,14 @@ The console says what happened in your terms, not the protocol's:
 [teleop] discarded
 ```
 
-**The episode count moves only when the recorder acknowledges the keypoint.**
+**The episode count moves only when a recorder received the keypoint.**
 A take it never heard about is not an episode however firmly the key was
 pressed, and a tally that claims otherwise is worse than none. That is also
 the only thing printed on the success path — a failure is always loud, because
 it means you were demonstrating into the void:
 
 ```
-[teleop] NOT RECORDED: no 'recorder' in the room
+[teleop] NOT RECORDED: no recorder in the room
 ```
 
 Quitting prints the session's tally, per task:
@@ -218,9 +218,7 @@ so you do not have to turn back to the terminal to check:
 [teleop] task 2: 2 episodes of 'Stack it on the blue' so far
 ```
 
-The switch is marked in the archive even though nothing is recording, so the
-`state/task` band names what was being collected in the gaps as well as inside
-the takes.
+Each take's `recording` keypoint carries the task it was collected under.
 
 **Switching is refused mid-take.** A span that changes task halfway is
 mislabelled whichever label it ends up with, and the archive has no way to say
@@ -238,21 +236,19 @@ A typical session:
 ```
 (all three running; arm follows the leader)
 move to start position
-r        → the recording band opens
+r        → `recording`: the take starts
 perform the task
-r        → the band closes; that span is one demonstration
+r        → `idle`: that span is one demonstration
 move back to start position
 ... repeat ...
 2        → switch to task 2; collect a few under that
-[        → closes the band and marks the take discarded instead
+[        → `discard`: the take ends and is thrown away instead
 x        → quit
 ```
 
 Nothing is refused and nothing is queued: the archive is one continuous
 recording and a keypoint only writes a mark into it. Quitting mid-take
-closes the band with `discard: true` rather than leaving it open — an
-unterminated span would read as a demonstration that ran to the end of the
-file.
+sends `discard` rather than leaving the take open.
 
 ## Watch the 5s lines
 
@@ -303,19 +299,16 @@ rate the hardware allows. It does mean the arm follows at that rate, so if
 hardware can actually do rather than requesting a rate you never get.
 
 
-The teleoperator prints one line every 5s, both numbers on its own clock:
+The teleoperator prints one line every 5s:
 
 ```
-[teleop] view 41ms old, 29.8 fps in, clock +3ms (rtt 2ms, 287 samples), task 2
+[teleop] view 41ms old, 29.8 fps in, clock +3ms (±1ms), task 2
 ```
 
-`clock` is the estimated offset to the robot's clock, and it is what makes
-`see-to-act` on the recorder a real measurement rather than two machines' wall
-clocks subtracted. Watch that it is **stable**, not that it is small — a
-constant +3 ms or +2 s are both fine, a number that wanders by tens of
-milliseconds means the estimate is being pushed around by congestion rather
-than tracking a clock. `clock unsynced` means no frame has arrived yet, and the
-two wall clocks are being trusted as they always were.
+`clock` is Portal's offset to the robot's clock, which every action is stamped
+on. Watch that it is **stable**, not that it is small — a constant +3 ms or
++2 s are both fine. `clock unsynced` means Portal has not synced yet, and
+actions are stamped on this machine's clock until it does.
 
 `task N` appears only when the session has more than one, and is the answer to
 "which task have I been collecting for the last ten minutes".
@@ -325,45 +318,18 @@ two wall clocks are being trusted as they always were.
 | `view ... old` | how stale the picture you are flying on is | tens of ms is normal; hundreds means the link stalled and you were flying blind through it |
 | `fps in` | frames arriving per second | well under `PORTAL_FPS` means the uplink cannot carry the video — see [the codec trade-off](configuration.md#codec-choice) |
 
-The recorder prints what actually reached the archive:
+The recorder prints what it received and what it wrote:
 
 ```
-[recorder] 1482 states, 1476 frames, 1470 actions, 4 keypoints; see-to-act 41ms
+[recorder] 1482 states, 1476 frames, 1470 actions; 1476 frames written, 0 dropped by the writer
 ```
 
 | Reading | What it means | What to do about it |
 |---|---|---|
-| the four counts | what has been filed so far | actions far below states means the gate is not the teleoperator's, or its anchor is missing |
-| `see-to-act` | frame capture to the action answering it — the downlink plus the human | a real number: actions are stamped on the robot's clock, so this no longer carries the offset between the two machines. It inherits the clock estimate's error instead, which the teleoperator reports |
+| the three received counts | what reached the recorder | actions far below states means the gate is not the teleoperator's |
+| `dropped by the writer` | JPEG encoding could not keep up, so Portal dropped frames rather than stall | lower `PORTAL_DATA_RRD_QUALITY`, or the camera resolution. State, actions and keypoints are never dropped |
 
-Two more clauses appear only when there is something to say:
-
-```
-[recorder] ... ; 37 actions unanchored; 12 frames dropped by the writer
-```
-
-And one that should never appear at all:
-
-```
-[recorder] ... ; 4 actions dated BEFORE the frame they answered -- the operator's clock estimate is wrong
-```
-
-An action cannot precede the observation that caused it. Both stamps are on
-the robot's clock — one measured, one the teleoperator's estimate of it — so a
-negative gap is not a latency reading, it is proof the estimate is off. Check
-the teleoperator's `clock` figure; a number that wanders means congestion is
-pushing the estimate around. Nothing is lost when this fires — `robot_time`
-placement uses the exact anchor and is unaffected — but `see-to-act` is not
-trustworthy while it does.
-
-`unanchored` means actions arrived with no `in_reply_to_ts_us` and could
-not be placed on the timeline. The first seconds of a session always cost
-a few — the operator withholds its anchor until every camera has produced —
-but a steady trickle means a declared camera is not publishing at all, and
-the archive is getting no actions. `frames dropped by the writer` means
-JPEG encoding could not keep up: lower `PORTAL_DATA_RRD_QUALITY`, or the
-camera resolution. Archive failures surface on the same cadence as
-`[recorder] archive error: ...`.
+Each keypoint is printed as it arrives, with who sent it.
 
 ## Inspect what you collected
 
@@ -374,16 +340,10 @@ deliberate. The record is the recorder's `.rrd`:
 rerun ~/portal-sessions/portal-rebot-20260831T105141.rrd
 ```
 
-It needs a 0.34 or newer viewer, which is where the state timeline landed.
-The blueprint travels in the file, so it opens laid out: cameras on top,
-state and action series under them, and the session lanes across the
-bottom.
-
 What to look at:
 
-- **Scrub the recording band.** Each `idle → recording → idle` span is one
-  demonstration, and `state/task` names what it was collected under. A span
-  followed by a `discard: true` keypoint is a take you threw away.
+- **The keypoints.** `keypoints/recording`, `keypoints/idle` and
+  `keypoints/discard` mark every take, with the task in the payload.
 - **Scrub anywhere at all.** Every `robot_time` instant carries the frame,
   the joint state and the action taken in response — aligned by
   construction, not by a matching pass.
@@ -391,84 +351,63 @@ What to look at:
   row per observation, so when several actions answered the same frame — any
   time the video stuttered — you are seeing the freshest of them.
   `action_time` has them all, in the order the human produced them.
-- **Read `latency/see_to_act_ms` against the metrics.** A demonstration
-  that felt wrong usually has its explanation in the seconds *before* it,
-  and the archive runs continuously, so that context is in the same file.
+- **Read the metrics.** A demonstration that felt wrong usually has its
+  explanation in the seconds *before* it, and the archive runs continuously,
+  so that context is in the same file.
 
-To read one back programmatically, `test/_harness.py:read_archive` is the
-short version — a local `rr.server.Server` over the file:
+To read one back programmatically, use the reader the converter uses. It
+pairs each action with the newest state and frames at or before its anchor,
+allowing up to 200 ms of staleness by default. Use
+`Selection(max_stale_us=0)` to require exact timestamps, as the test harness does:
 
 ```python
-from test._harness import read_archive
+from livekit.portal.convert import EpisodeRule, Selection, read_archive
 
-aligned = read_archive("session.rrd")                          # robot_time
-every_action = read_archive("session.rrd", index="action_time")
+archive = read_archive("session.rrd")
+for episode in archive.episodes(EpisodeRule()):
+    for row in archive.rows(episode, Selection()):
+        row.state, row.action, row.frames
 ```
-
-**Which one a dataset converter wants is `action_time`**, and this is the
-one thing to get right. Read on `robot_time` and you silently drop every
-action that shared an anchor with a later one — 25–28% of them on a link with
-any jitter or frame loss, and disproportionately the ones taken while the
-picture was frozen. Each `action_time` row still carries its `robot_time`
-value, so the observation an action answered is one lookup away. Several
-actions against one observation is correct: the human's arm kept moving while
-the video did not, and each of those actions is one the follower executed.
 
 ## Convert to a LeRobot dataset
 
+Portal's converter, installed with this project:
+
 ```bash
-uv run rrd-converter data/sessions                        # a whole folder
-uv run rrd-converter a.rrd b.rrd --repo-id cubes          # or named files
-uv run rrd-converter data/sessions --dry-run              # look before writing
+uv run livekit-portal convert data/sessions --output lerobotv3 --dry-run   # look first
+uv run livekit-portal convert data/sessions --output lerobotv3 --repo-id local/cubes
+uv run livekit-portal convert data/sessions --output lerobotv3 --repo-id me/cubes --push
 ```
 
 ```
-[convert] portal-rebot-20260831T223346.rrd: 4 episodes, 1 discarded, cameras=['arm_camera']
-[convert] frames are 640x480
-[convert] creating data/local/cubes
-[convert]   portal-rebot-20260831T223346.rrd #1: 118 rows  task='Pick up the red cube'
-[convert] 4 episodes, 460 rows -> data/local/cubes
+[convert] portal-rebot-20260831T223346.rrd: 4 episodes, cameras=['arm_camera'], senders=['teleoperator']
+[convert] fps=30, from the robot's state rate
+[convert]   portal-rebot-20260831T223346.rrd #1: 118 rows, task='Pick up the red cube'
+[convert] wrote 4 episodes, 460 rows
 ```
 
-Out comes whatever the installed lerobot writes — `CODEBASE_VERSION` is
-**v3.0** — so it loads the ordinary way:
+Out comes a LeRobot v3 dataset, which loads the ordinary way:
 
 ```python
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 ds = LeRobotDataset("local/cubes", root="data/local/cubes")
 ```
 
-Running it again over the same `--root` **appends**, so a corpus can be built
-across sessions: point it at the folder each time.
+**Build a corpus by converting the folder again.** The converter writes one
+dataset from every archive it is given and refuses a non-empty `--root`
+without `--overwrite`, so point it at the folder of sessions each time rather
+than appending to a dataset.
 
-| Flag | Default | Does |
-|---|---|---|
-| `--repo-id` | `local/portal-rebot` | dataset id; a bare name becomes `local/<name>` |
-| `--root` | `data/<repo-id>` | where it lands |
-| `--fps` | `portal.yaml`'s | the dataset's declared rate |
-| `--max-stale-ms` | `200` | how old an observation may be and still pair with an action |
-| `--keep-discarded` | off | include takes you marked with `[` |
-| `--dry-run` | off | report what each archive holds, write nothing |
+Takes ended with `[` are skipped, and a take left open when the session ends
+is dropped. If an archive has no `recording` keypoints, the converter treats
+its full span as one episode. Start the recorder before marking the first take.
+Archives are converted together only if they agree on cameras and fields; a
+mismatch is refused with a line naming what differs.
 
-Archives are converted together only if they **agree** — same cameras, same
-state and action fields. One dataset has one feature set, so a mismatch is
-refused with a line naming what differs, rather than silently dropping the odd
-column. Convert those separately.
-
-**Discarded takes are skipped**, and a take left open when the session ended
-is dropped — a truncated demonstration teaches a policy to stop early. Both
-are reported per file, so the count is never silent.
-
-Conversion is deliberately offline. It decodes every frame and re-encodes
-video, and none of that belongs in a loop with an arm on the end of it — which
-is why the recorder writes one continuous archive and the slicing happens
-afterwards, from a record that kept everything.
-
-It is chatty on the way in: the lerobot dataset stack prints an SVT-AV1 banner
-per episode and, on some machines, a dyld duplicate-class notice. The louder
-ones — a torchcodec load traceback for every FFmpeg version it probed, and
-libav's per-frame colourspace grumbling — are suppressed unless you set
-`LOG_LEVEL`, which brings them all back.
+Every flag, and how rows and episodes are built, is in Portal's
+`docs/03-data-recording.md`, under *Convert recordings into training datasets*.
+Conversion is deliberately offline: it decodes every frame and re-encodes
+video, and none of that belongs in a loop with an arm on the end of it.
 
 ## Deploy to the robot host
 
@@ -501,6 +440,13 @@ somewhere other than the operator's machine — it is the same tree, and
 
 ## Known issues
 
+- **A frame can carry its neighbour's timestamp right after a stall** on
+  Portal 0.3.0rc1 (first seen on pre-0.3 `main`). When the robot loop catches up after a stall it
+  publishes two ticks a few hundred microseconds apart, and one of those frames
+  arrives stamped with the other tick's timestamp. An action anchored to it is
+  then paired with the state one tick later. `test_degraded`'s `stalls` profile
+  catches it, one or two rows in 120; Portal 0.2.5 does not do it. The fix
+  belongs in Portal's video timestamp path, not here.
 - **Wayland starves the *global* hotkey tap.** pynput's only Linux backend
   is XRecord over `$DISPLAY` (`pynput/_util/__init__.py:64`). In a Wayland
   session that display is XWayland, which never sees keys typed into
@@ -565,8 +511,8 @@ Previously listed and now fixed:
   frame decode and the episode state machine all lived in
   `teleoperator/__main__.py`, so a disk stall or a slow encode was a stall
   in the loop driving the arm, and restarting the teleoperator ended the
-  recording. Recording is now its own process — a second Portal operator
-  that never claims the action gate — and the two are independent. What
+  recording. Recording is now its own process — a Portal observer — and
+  the two are independent. What
   made the split possible is `in_reply_to_ts_us`: the operator declares
   which frame each action answers, so the recorder can align the streams
   without having produced them.

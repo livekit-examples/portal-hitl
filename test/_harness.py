@@ -3,10 +3,11 @@
 Every robot tick stamps its own index into both the state and the frame, and
 the operator stamps the tick it decoded out of the frame it was looking at
 into the action it sends back. The recorder files that action at the frame's
-own capture timestamp, so in the archive all three land on ONE `robot_time`
-row, and a correctly aligned row satisfies, with no tolerance:
+own capture timestamp, so reading the archive back with `livekit-portal
+convert`'s reader and no staleness allowed, a correctly aligned row satisfies,
+with no tolerance:
 
-    /observation/shoulder_pan.pos == /action/elbow_flex.pos   (mod TICK_WRAP)
+    state["shoulder_pan.pos"] == action["elbow_flex.pos"]   (mod TICK_WRAP)
 
 The modulo is the bar wrapping: state carries the raw tick, the frame can only
 carry TICK_WRAP of them before the bar runs off the right edge.
@@ -32,8 +33,8 @@ FPS = 30
 TICK_STATE_IDX = 0    # shoulder_pan.pos carries the robot's tick
 SEEN_ACTION_IDX = 2   # elbow_flex.pos carries the tick the operator saw
 
-TICK_STATE_ENTITY = "/observation/shoulder_pan.pos"
-SEEN_ACTION_ENTITY = "/action/elbow_flex.pos"
+TICK_STATE_FIELD = "shoulder_pan.pos"
+SEEN_ACTION_FIELD = "elbow_flex.pos"
 
 FRAME_W, FRAME_H = 640, 480
 
@@ -109,60 +110,29 @@ def tick_from_frame(frame, step: int = BAR_STEP, width: int = BAR_WIDTH,
     return (float(lit.mean()) / scale - (width - 1) / 2.0) / step
 
 
-def read_archive(path, index: str | None = "robot_time") -> "pyarrow.Table":
-    """Read a session `.rrd` back, one row per `robot_time`.
+def archive_rows(path) -> tuple["Archive", list["Row"]]:
+    """An archive and every row of its episodes, each action paired with the
+    state and frames at EXACTLY the timestamp it answered."""
+    from livekit.portal.convert import EpisodeRule, Selection, read_archive
 
-    Needs `datafusion`, which is why it is in the `dev` dependency group:
-    rerun dropped the lighter `rerun.dataframe` reader in 0.34, so the only
-    way back in is a local server over the file.
-    """
-    import rerun as rr
-
-    with rr.server.Server(datasets={"session": [str(path)]}) as server:
-        client = server.client()
-        dataset = client.get_dataset("session")
-        return dataset.reader(index=index).to_arrow_table()
+    archive = read_archive(path)
+    rows = [row for episode in archive.episodes(EpisodeRule())
+            for row in archive.rows(episode, Selection(max_stale_us=0))]
+    return archive, rows
 
 
-def column(table, entity: str, component: str | None = None) -> list:
-    """One entity's values in `robot_time` order, `None` where it logged
-    nothing on that row. Column names carry the archetype and component
-    (`/action/x:Scalars:scalars`), so entities are matched by prefix.
-
-    Scalars come back wrapped in a list -- one row may hold several -- and this
-    unwraps the single-value case every entity here logs.
-    """
-    prefix = f"/{entity.lstrip('/')}:{component or ''}"
-    hits = [name for name in table.column_names if name.startswith(prefix)]
-    if not hits:
-        return []
-    return [v[0] if isinstance(v, list) and len(v) == 1 else v
-            for v in table.column(hits[0]).to_pylist()]
+def aligned_rows(rows) -> list[tuple[int, int]]:
+    """(robot tick, tick the operator saw) for every row whose action was
+    anchored. An unanchored action -- sent before the first frame -- says
+    nothing about alignment either way."""
+    return [(int(round(row.state[TICK_STATE_FIELD])), int(round(row.action[SEEN_ACTION_FIELD])))
+            for row in rows if row.action[SEEN_ACTION_FIELD] >= 0]
 
 
-def bands(table, entity: str) -> list[str]:
-    """A state lane's values in order, one per transition."""
-    return [v for v in column(table, entity, "StateChange") if v is not None]
-
-
-def aligned_rows(table) -> list[tuple[int, int]]:
-    """(robot tick, tick the operator saw) for every row carrying both.
-
-    Rows with only one of the two are the honest gaps -- a state whose frame
-    was dropped, an action logged before the first frame resolved -- and say
-    nothing about alignment either way.
-    """
-    states = column(table, TICK_STATE_ENTITY)
-    seen = column(table, SEEN_ACTION_ENTITY)
-    return [(int(round(s)), int(round(a)))
-            for s, a in zip(states, seen)
-            if s is not None and a is not None and a >= 0]
-
-
-def pairing_mismatches(table) -> list[tuple[int, int]]:
-    """Rows whose action is filed against an observation that did not produce
+def pairing_mismatches(rows) -> list[tuple[int, int]]:
+    """Rows whose action is paired with an observation that did not produce
     it. The check the whole split exists to make possible."""
-    return [(state, seen) for state, seen in aligned_rows(table)
+    return [(state, seen) for state, seen in aligned_rows(rows)
             if state % TICK_WRAP != seen]
 
 

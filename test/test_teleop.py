@@ -19,8 +19,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from portal_rebot import keypoints
-from portal_rebot.teleoperator.__main__ import Clock, Tally, View, select_task
+from portal_rebot.teleoperator.__main__ import Tally, View, select_task
 from portal_rebot.teleoperator.preview import Preview
 from test._harness import Checks
 
@@ -57,79 +56,23 @@ def check_view(c: Checks) -> None:
 
 def check_task_switch(c: Checks) -> None:
     tasks = ["Pick up the red cube", "Stack it on the blue", "Push the tray left"]
-    marks: list[tuple] = []
     preview = RecordingPreview()
     tally = Tally(tasks)
 
-    def mark(state, then=None, **extra):
-        marks.append((state, extra))
-
-    active, task = select_task(tasks, 0, "2", False, preview, mark, tally)
+    active, task = select_task(tasks, 0, "2", False, preview, tally)
     c.check((active, task) == (1, tasks[1]), "a digit selects that task", f"{active} {task!r}")
-    c.check(marks == [(keypoints.IDLE, {"task": tasks[1]})],
-            "the switch is marked, so the archive's task band follows it", str(marks))
     c.check(preview.shown == [(tasks, 1)], "and the window is told, not just the terminal")
 
-    marks.clear()
-    active, task = select_task(tasks, 1, "2", False, preview, mark, tally)
-    c.check((active, task) == (1, tasks[1]) and not marks,
-            "re-selecting the active task is a no-op, not a duplicate mark")
+    active, task = select_task(tasks, 1, "2", False, preview, tally)
+    c.check((active, task) == (1, tasks[1]) and len(preview.shown) == 1,
+            "re-selecting the active task is a no-op")
 
-    marks.clear()
-    active, task = select_task(tasks, 1, "7", False, preview, mark, tally)
-    c.check((active, task) == (1, tasks[1]) and not marks,
-            "a digit past the end of the list changes nothing")
+    active, task = select_task(tasks, 1, "7", False, preview, tally)
+    c.check((active, task) == (1, tasks[1]), "a digit past the end of the list changes nothing")
 
-    marks.clear()
-    active, task = select_task(tasks, 0, "3", True, preview, mark, tally)
-    c.check((active, task) == (0, tasks[0]) and not marks,
+    active, task = select_task(tasks, 0, "3", True, preview, tally)
+    c.check((active, task) == (0, tasks[0]),
             "switching is refused mid-take, so no span is labelled two things")
-
-
-def check_clock(c: Checks) -> None:
-    """The estimator is `max(frame_ts - arrival) + rtt/2`, so it is checked by
-    handing it frames whose true offset is known."""
-    import time as _time
-
-    clock = Clock()
-    c.check(not clock.synced and clock.offset_us == 0,
-            "before any frame the offset is zero -- the wall clocks are trusted")
-
-    # The robot's clock runs 5s ahead. Frames arrive having spent between 20ms
-    # and 120ms in transit, so the BEST sample is the 20ms one.
-    offset_us = 5_000_000
-    now_us = int(_time.time() * 1_000_000)
-    for delay_ms in (120, 60, 20, 90):
-        clock.saw(now_us + offset_us - delay_ms * 1000)
-    c.check(clock.synced, "a frame syncs the clock")
-    # max(frame_ts - arrival) picks the least delayed frame, so the estimate
-    # lands one best-case delay short of the truth.
-    error_ms = (clock.offset_us - offset_us) / 1e3
-    c.check(-25 <= error_ms <= 0,
-            "the least delayed frame sets the estimate, biased low by its transit",
-            f"{error_ms:+.0f}ms off a 5000ms offset")
-
-    # RTT is folded in when a frame arrives, not when it is read, so it takes
-    # effect on the next sample rather than retroactively.
-    clock.rtt_us = 40_000
-    clock.saw(int(_time.time() * 1_000_000) + offset_us - 20_000)
-    c.check(clock.offset_us - offset_us > error_ms * 1000,
-            "half the RTT closes most of that gap on the next sample",
-            f"{(clock.offset_us - offset_us) / 1e3:+.0f}ms with rtt=40ms")
-
-    stamps = [clock.now_us() for _ in range(500)]
-    c.check(stamps == sorted(set(stamps)),
-            "now_us never repeats and never goes backwards -- a repeat would "
-            "collapse two actions into one archive row")
-    c.check(abs(stamps[0] - (int(_time.time() * 1_000_000) + clock.offset_us)) < 200_000,
-            "and lands on the robot's clock, not this one")
-
-    # An offset that steps DOWN when the best sample expires must not rewind.
-    clock._samples.clear()
-    clock.saw(int(_time.time() * 1_000_000) - 9_000_000)
-    c.check(clock.now_us() > stamps[-1],
-            "a backwards step in the estimate still yields an increasing stamp")
-    c.check("clock" in clock.report(), "the estimate is reportable", clock.report())
 
 
 def check_tally(c: Checks) -> None:
@@ -248,7 +191,6 @@ def main() -> int:
     check_task_switch(c)
     check_session(c)
     check_tally(c)
-    check_clock(c)
     check_hotkeys(c)
     check_preview(c)
     return c.exit_code

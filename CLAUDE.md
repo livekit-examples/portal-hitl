@@ -3,8 +3,8 @@
 Teleoperated data collection on top of [LiveKit
 Portal](https://github.com/livekit/portal). A Seeed reBot Arm B601-DM
 follower is driven over the network by an operator holding a reBot 102
-leader arm; a third, listen-only operator records state, video and actions
-into one `.rrd` on the robot's clock. Every action carries
+leader arm; a third peer, a Portal observer, records state, video, actions
+and keypoints into one `.rrd` on the robot's clock with Portal's `RrdSink`. Every action carries
 `in_reply_to_ts_us` — the capture timestamp of the frame the operator was
 looking at — which is what lets a separate process align the three streams
 without having produced any of them.
@@ -36,9 +36,8 @@ After editing code, update the docs in the same pass:
 | the tick loops, Portal usage, the archive's alignment, hardware glue | [docs/architecture.md](docs/architecture.md) |
 | `portal.yaml`, any env var, a default value, the codec | [docs/configuration.md](docs/configuration.md) — and `.env.example` |
 | how the rig is set up, run, calibrated, or deployed | [docs/operations.md](docs/operations.md) |
-| the `add_keypoint` payload | [portal_rebot/keypoints.py](portal_rebot/keypoints.py) is the contract; then architecture.md |
+| the keypoint types or payload | `RECORDING` / `IDLE` / `DISCARD` in `teleoperator/__main__.py`, which must match `livekit-portal convert`'s episode rule; then architecture.md |
 | a known bug — fixed it, or found a new one | the **Known issues** list in [docs/operations.md](docs/operations.md#known-issues) |
-| the archive's entities or timelines | [docs/architecture.md](docs/architecture.md) AND `portal_rebot/convert/reader.py`, which parses them back |
 | the file layout | the layout table in [docs/architecture.md](docs/architecture.md#layout) and `README.md` |
 | what the tests cover, or add a profile | [test/README.md](test/README.md) |
 
@@ -53,7 +52,7 @@ meant to stay the whole set.
 
 | File | Covers |
 |---|---|
-| [docs/architecture.md](docs/architecture.md) | Portal roles and the sync/gate model, the wire contract, both tick loops, the anchor and the archive's one timeline, the keypoint contract, the camera resilience wrapper, file layout |
+| [docs/architecture.md](docs/architecture.md) | Portal roles and the sync/gate model, the wire contract, both tick loops, the anchor and the archive's two timelines, marking takes, the camera resilience wrapper, file layout |
 | [docs/configuration.md](docs/configuration.md) | every `portal.yaml` key and env var, the codec trade-off table |
 | [docs/operations.md](docs/operations.md) | setup, calibration, running all three, hotkeys, the 5s diagnostics, reading an archive, deploy, known issues |
 
@@ -63,7 +62,6 @@ meant to stay the whole set.
 portal.yaml             # the wire contract all three peers load
 portal_rebot/
   common.py             # env loading, LiveKit tokens, identities, the tick pacer
-  keypoints.py          # the add_keypoint payload contract
   robot/
     __main__.py         # Portal Robot flow           -> `uv run robot`
     follower.py         # B601-DM hardware: CAN motors, resilient cameras
@@ -74,11 +72,7 @@ portal_rebot/
     session.py          # startup questions: the session's task list
     preview.py          # the window: one static image per camera
   recorder/
-    __main__.py         # listen-only Portal Operator -> `uv run recorder`
-    archive.py          # the .rrd writer: two timelines, bands, frame writer thread
-  convert/
-    __main__.py         # .rrd -> LeRobot v3 dataset  -> `uv run rrd-converter`
-    reader.py           # reads an archive back: spans, as-of observations
+    __main__.py         # Portal Observer + RrdSink   -> `uv run recorder`
 scripts/                # deploy_to_robot.sh, deploy.rsyncignore
 test/                   # hardware-free validation against a local LiveKit server
 docs/                   # the three files above
@@ -91,23 +85,23 @@ uv sync                          # install (also installs the three console scri
 uv run robot                     # robot side, on the B601-DM host
 uv run recorder                  # listen-only archive writer, wherever the disk is
 uv run teleoperator              # operator side, with the leader arm
-uv run rrd-converter <paths>     # archives -> a LeRobot v3 dataset, offline
+uv run livekit-portal convert <paths> --output lerobotv3   # archives -> LeRobot v3, offline
 ./scripts/deploy_to_robot.sh     # rsync to the robot host
 
 # validation -- needs a local `livekit-server --dev`, no hardware
 uv run python -m test.test_pubsub     # transport, gate, frame/state sync
 uv run python -m test.test_recorder   # three peers, archive round-trip, alignment
 uv run python -m test.test_degraded   # the same under sender-side degradation
-uv run python -m test.test_rrd        # the archive writer alone (no server)
 uv run python -m test.test_resilience # bus faults + speed cap   (no server)
 uv run python -m test.test_teleop     # anchor, tasks, hotkeys   (no server)
-uv run python -m test.test_convert    # rrd -> LeRobot v3        (no server)
 ```
 
 All three are `[project.scripts]` entry points onto a `run()` function, so
 `uv run python -m portal_rebot.robot` is the same thing. `portal.yaml` and
-`.env` stay at the repo root; `portal_rebot/common.py` resolves them one
-level up from itself, so the cwd does not matter.
+`.env` live at the repo root. `portal_rebot/common.py` always resolves the
+schema there, but also loads environment files from the working directory.
+Relative recording paths use the working directory. See the environment-loading
+order in [Configuration](docs/configuration.md#environment-variables).
 
 `test/` runs the real Portal stack against a local LiveKit server with
 synthetic peers, so transport, gate, keypoints and alignment are all
@@ -131,15 +125,15 @@ See [test/README.md](test/README.md).
   a stall in the loop driving the arm.
 - **`robot_time` aligns, `action_time` preserves.** An action is filed on
   `robot_time` at its `in_reply_to_ts_us` -- never at its own
-  `timestamp_us`, which is a different host's wall clock -- and that is what
+  `timestamp_us`, which is when it was sent, not what it answered -- and that is what
   co-locates it with the frame and state it answered. It carries
   `action_time` as a second index because a rerun index keeps ONE value
   per entity: without it, two actions answering one frame lose the first
   outright (25-28% of them on a link with any jitter). Both indices are on
-  the ROBOT's clock -- the teleoperator estimates the offset and stamps
-  actions in robot time -- but they stay separate because one is measured and
-  one estimated, and merging them would make the measured positions
-  unverifiable. Never drop the second index, and never let the estimate touch
+  the ROBOT's clock -- Portal syncs the teleoperator to it and stamps actions
+  in robot time -- but they stay separate because one is measured and one
+  synced, and merging them would make the measured positions unverifiable.
+  `RrdSink` keeps both. Never let the synced clock touch
   `in_reply_to_ts_us`: that is the one column no clock model can be wrong
   about, and the zero-tolerance alignment tests rest on it.
 - **No command reaches the motors unramped.** `_StepLimiter` sits inside
@@ -152,10 +146,9 @@ See [test/README.md](test/README.md).
   which stops the gravity-loaded joints moving at all. Do not add a path
   around it, and do not "simplify" it back to a present-relative clamp.
 - **Nothing hardware- or IO-shaped may raise into the tick loop.** The
-  camera wrapper, the motor-bus wrapper, the archive's `_guard`, and the
-  preview logger all swallow and report rather than propagate. A device
-  fault reconnects; it never ends the run. Keep that property -- and the
-  same goes for a Portal callback, since the recorder's are its only loop.
+  camera wrapper, the motor-bus wrapper and the preview logger all swallow
+  and report rather than propagate. A device fault reconnects; it never ends
+  the run. Keep that property -- and the same goes for a Portal callback.
 - **Config comes from env vars with defaults in code**, documented in
   the `docs/configuration.md` tables — that file is the complete set, and
   a new variable must appear there. `.env.example` is not a mirror of it:

@@ -1,9 +1,9 @@
 """Operator side: reBot 102 leader -> Portal actions, and a window to fly by.
 
 Run with `uv run teleoperator`. Each tick reads one action off the leader and
-sends it; nothing is recorded here. `uv run recorder` is a second operator in
-the same room that writes the archive, and this process only tells it where the
-boundaries are, by RPC, when a hotkey is pressed.
+sends it; nothing is recorded here. `uv run recorder` is an observer in the
+same room that writes the archive, and this process only marks where the
+takes are, with keypoints, when a hotkey is pressed.
 
 Every action declares the frame it answers in `in_reply_to_ts_us` -- a FRAME
 timestamp, because the operator flies on the video, and it is generally a tick
@@ -14,7 +14,6 @@ Hotkeys: `r` toggle recording, `[` end and mark the take discarded, `x` quit.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import time
@@ -23,13 +22,10 @@ from typing import Optional
 
 from livekit.portal import Operator, OperatorConfig, VideoFrameData, frame_bytes_to_numpy_rgb
 
-from portal_rebot import keypoints
 from portal_rebot.common import (
     CONFIG_PATH,
-    RECORDER_IDENTITY,
     TELEOPERATOR_IDENTITY,
     HardwareThread,
-    all_video_tracks,
     env_int,
     load_env,
     mint_token,
@@ -78,32 +74,33 @@ async def maintain_control(op: Operator, me: str, period: float = 1.0) -> None:
         await asyncio.sleep(period)
 
 
-async def send_keypoint(op: Operator, payload: dict) -> bool:
-    """Mark a boundary on the recorder's timeline. True when it landed.
+# The keypoint types `livekit-portal convert` cuts episodes at by default.
+RECORDING, IDLE, DISCARD = "recording", "idle", "discard"
 
-    Addressed to the recorder by name: Portal routes an operator's RPCs to the
-    robot by default. Silent on success, loud on failure -- a keypoint that
-    went nowhere means the operator is demonstrating into the void -- and never
-    raising, because losing a boundary costs one demonstration while taking the
-    loop down mid-motion costs the arm.
+
+async def send_keypoint(op: Operator, kind: str, payload: dict, at_ts_us: Optional[int]) -> bool:
+    """Mark a boundary on the recorder's timeline. True when an observer got it.
+
+    Filed at the frame the operator is looking at, so the boundary lands where
+    they saw it. Loud on failure -- a keypoint that went nowhere means the
+    operator is demonstrating into the void -- and never raising, because
+    losing a boundary costs one demonstration while taking the loop down
+    mid-motion costs the arm.
     """
-    if RECORDER_IDENTITY not in op.operators():
-        print(f"[teleop] NOT RECORDED: no '{RECORDER_IDENTITY}' in the room")
-        return False
     try:
-        await op.perform_rpc(
-            keypoints.METHOD, json.dumps(payload), destination=RECORDER_IDENTITY)
-        return True
+        if await op.send_keypoint(kind, payload, timestamp_us=at_ts_us):
+            return True
+        print("[teleop] NOT RECORDED: no recorder in the room")
     except Exception as exc:
-        print(f"[teleop] NOT RECORDED: the recorder refused the keypoint: {exc}")
-        return False
+        print(f"[teleop] NOT RECORDED: the keypoint did not send: {exc}")
+    return False
 
 
 class Tally:
     """How many episodes have been recorded, per task.
 
-    Counted when the recorder ACKNOWLEDGES the closing keypoint, not when the
-    key is pressed: a take the recorder never heard about is not an episode.
+    Counted when a recorder RECEIVED the closing keypoint, not when the key is
+    pressed: a take the recorder never heard about is not an episode.
     Discarded takes are not counted either.
     """
 
@@ -127,12 +124,10 @@ class Tally:
 
 
 def select_task(tasks: list[str], active: int, key: str, recording: bool,
-                preview, mark, tally: "Tally") -> tuple[int, str]:
+                preview, tally: "Tally") -> tuple[int, str]:
     """Handle a `1`-`9` press. Returns the (index, description) to use from now on.
 
     Refused while a take is in flight, so every recorded span is single-task.
-    The switch is marked even though nothing is recording: the keypoint is what
-    moves the recorder's `state/task` band.
     """
     index = int(key) - 1
     if not 0 <= index < len(tasks):
@@ -146,95 +141,7 @@ def select_task(tasks: list[str], active: int, key: str, recording: bool,
 
     print(f"[teleop] task {key}: {tally.line(index)} so far")
     preview.show_task(tasks, index)
-    mark(keypoints.IDLE, task=tasks[index])
     return index, tasks[index]
-
-
-class Clock:
-    """The robot's clock, as seen from here.
-
-        offset = max(frame_ts - arrival) + rtt / 2
-
-    The largest subtraction over the window is the frame that spent the least
-    time in transit, and half the RTT covers what transit is left. No drift
-    term and no filter: the window slides. Two guards, both from probed
-    failures -- the estimate is KEPT when the window empties (a video freeze is
-    no news about the clock, not news that it is zero), and a sample implying a
-    jump is not believed unless it keeps coming, at which point the robot's
-    clock really did move. See docs/architecture.md#the-clock.
-    """
-
-    # Long enough to catch a genuinely uncongested frame, short enough that a
-    # drifting clock is followed rather than averaged away.
-    WINDOW_US = 10_000_000
-    # No clock moves this far between two frames. Anything that says otherwise
-    # is a bad timestamp, not evidence.
-    JUMP_LIMIT_US = 1_000_000
-    # ...unless it keeps saying so, at which point it is the truth. ~1s at 30fps.
-    RESYNC_AFTER = 30
-
-    def __init__(self) -> None:
-        self._samples: deque[tuple[int, int]] = deque()
-        self._offset_us = 0
-        self._last_stamp = 0
-        self._rejected = 0
-        self.rtt_us = 0
-        self.synced = False
-        self.resyncs = 0
-        self.rejected_total = 0
-
-    def saw(self, frame_ts_us: int) -> None:
-        arrival_us = int(time.time() * 1_000_000)
-        delta = frame_ts_us - arrival_us
-        if self.synced and abs(delta + self.rtt_us // 2 - self._offset_us) > self.JUMP_LIMIT_US:
-            self._rejected += 1
-            self.rejected_total += 1
-            if self._rejected < self.RESYNC_AFTER:
-                return
-            # It kept happening: the robot's clock really did move. Start over,
-            # and let the stamp follow it back down -- `robot_time` jumped too,
-            # so the archive has an honest discontinuity either way.
-            self._resync()
-        self._rejected = 0
-
-        self._samples.append((arrival_us, delta))
-        while self._samples and self._samples[0][0] < arrival_us - self.WINDOW_US:
-            self._samples.popleft()
-        self._offset_us = max(d for _, d in self._samples) + self.rtt_us // 2
-        self.synced = True
-
-    def _resync(self) -> None:
-        self.resyncs += 1
-        self._samples.clear()
-        self._last_stamp = 0
-        self.synced = False
-
-    @property
-    def offset_us(self) -> int:
-        """Robot clock minus this one. Zero until the first frame, which just
-        means trusting the two wall clocks."""
-        return self._offset_us
-
-    def now_us(self) -> int:
-        """Now, on the robot's clock. Never repeats and never goes backwards:
-        two actions on the same microsecond would collapse into one archive row,
-        the exact loss `action_time` exists to prevent. Only a resync clears it,
-        because only a resync means the clock itself moved.
-        """
-        stamped = int(time.time() * 1_000_000) + self._offset_us
-        self._last_stamp = max(stamped, self._last_stamp + 1)
-        return self._last_stamp
-
-    def report(self) -> str:
-        if not self.synced:
-            return "clock unsynced"
-        line = (f"clock {self._offset_us / 1e3:+.0f}ms "
-                f"(rtt {self.rtt_us / 1e3:.0f}ms, {len(self._samples)} samples)")
-        if self.rejected_total:
-            line += f", {self.rejected_total} bad stamps"
-        if self.resyncs:
-            line += f", {self.resyncs} resyncs"
-        return line
 
 
 class View:
@@ -271,6 +178,16 @@ class View:
         return f"view {age_ms:.0f}ms old, {fps:.1f} fps in"
 
 
+def clock_report(op: Operator) -> str:
+    sync = op.metrics().time_sync
+    if not sync.synced:
+        return "clock unsynced"
+    line = f"clock {sync.offset_us / 1e3:+.0f}ms"
+    if sync.uncertainty_us is not None:
+        line += f" (±{sync.uncertainty_us / 1e3:.0f}ms)"
+    return line
+
+
 async def main() -> None:
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper())
     load_env()
@@ -279,7 +196,7 @@ async def main() -> None:
     room = required_env("LIVEKIT_ROOM")
     cfg = OperatorConfig.from_yaml_file(CONFIG_PATH, room)
     fps = env_int("PORTAL_FPS", cfg.fps)
-    cameras = all_video_tracks(cfg)
+    cameras = list(cfg.video_tracks)
 
     tasks = prompt_tasks()
     active = 0
@@ -289,11 +206,9 @@ async def main() -> None:
     hardware = HardwareThread("leader")
     preview = Preview(room, cameras)
     view = View(cameras)
-    clock = Clock()
 
     def on_video_frame(name: str, frame: VideoFrameData) -> None:
         view.saw(name, frame)
-        clock.saw(frame.timestamp_us)
         preview.show(name, frame_bytes_to_numpy_rgb(frame.data, frame.width, frame.height))
 
     for cam in cameras:
@@ -310,20 +225,15 @@ async def main() -> None:
     claim = asyncio.create_task(maintain_control(op, me))
     marks: set[asyncio.Task] = set()
 
-    def mark(state: str, then=None, **extra) -> None:
-        """Fire and forget: a keypoint is a round trip to another peer and the
-        leader arm cannot wait on it. The task is held so the loop cannot
-        collect it mid-flight, `then` runs only if the keypoint landed, and
-        `**extra` lands last so a caller can override `task` -- which the task
-        switch does, marking the new one before `task` itself has moved.
-        """
-        # The clock estimate rides along so the archive records what the
-        # operator believed the offset was, not just what it produced.
-        payload = {"state": state, "task": task, "at_ts_us": view.anchor(),
-                   "clock_offset_us": clock.offset_us, "rtt_us": clock.rtt_us, **extra}
+    def mark(kind: str, then=None) -> None:
+        """Fire and forget: the leader arm cannot wait on the send. The task is
+        held so the loop cannot collect it mid-flight, and `then` runs only if
+        a recorder got the keypoint."""
+        payload = {"task_description": task}
+        at_ts_us = view.anchor()
 
         async def deliver() -> None:
-            if await send_keypoint(op, payload) and then is not None:
+            if await send_keypoint(op, kind, payload, at_ts_us) and then is not None:
                 then()
 
         held = asyncio.create_task(deliver())
@@ -358,14 +268,14 @@ async def main() -> None:
                     recording = not recording
                     if recording:
                         print(f"[teleop] recording {task!r}")
-                        mark(keypoints.RECORDING)
+                        mark(RECORDING)
                     else:
                         # Counted in the callback, so the tally only moves on a
                         # take the recorder confirmed it heard about.
-                        mark(keypoints.IDLE, then=lambda n=active: tally.record(n))
+                        mark(IDLE, then=lambda n=active: tally.record(n))
                 elif key.isdigit():
                     active, task = select_task(
-                        tasks, active, key, recording, preview, mark, tally)
+                        tasks, active, key, recording, preview, tally)
                 elif key == "[":
                     # Say so rather than no-op: a silent key reads as a dead
                     # keyboard.
@@ -374,23 +284,17 @@ async def main() -> None:
                     else:
                         recording = False
                         print("[teleop] discarded")
-                        mark(keypoints.IDLE, discard=True)
+                        mark(DISCARD)
             if stop:
                 break
 
             action = await hardware.run(leader.get_action)
-            # Stamped on the ROBOT's clock, so the archive can say when this
-            # action happened rather than only which frame it answered.
-            op.send_action(
-                action,
-                timestamp_us=clock.now_us(),
-                in_reply_to_ts_us=view.anchor(),
-            )
+            # Portal stamps it on the robot's clock; the anchor says which
+            # frame it answered.
+            op.send_action(action, in_reply_to_ts_us=view.anchor())
 
-            if tick % fps == 0 and (metrics := op.metrics()) is not None:
-                clock.rtt_us = metrics.rtt.rtt_us_mean or 0
             if tick and tick % (fps * 5) == 0:
-                print(f"[teleop] {view.report()}, {clock.report()}"
+                print(f"[teleop] {view.report()}, {clock_report(op)}"
                       + (f", task {active + 1}" if len(tasks) > 1 else ""))
     except (KeyboardInterrupt, asyncio.CancelledError):
         print("\n[teleop] stopping ...")
@@ -402,8 +306,7 @@ async def main() -> None:
         if recording:
             # The recorder is still writing; leave the band closed rather than
             # ending the archive in the middle of a take.
-            await send_keypoint(op, {"state": keypoints.IDLE, "task": task,
-                                     "at_ts_us": view.anchor(), "discard": True})
+            await send_keypoint(op, DISCARD, {"task_description": task}, view.anchor())
         preview.close()
         claim.cancel()
         try:
