@@ -1,14 +1,14 @@
 # 6. Plugging in a policy
 
 A policy uses the same `Operator` interface as the human.
-[`policies/act/inference.py`](../policies/act/inference.py) loads an ACT
+[`src/policies/act/inference.py`](../src/policies/act/inference.py) loads an ACT
 checkpoint, receives synchronized observations, and sends actions while selected
 by the teleoperator.
 
 ## Load the training contract
 
 ```bash
-uv run --group train python policies/act/inference.py \
+uv run --group train python src/policies/act/inference.py \
   --checkpoint outputs/my-act/checkpoints/020000/pretrained_model \
   --dataset-root data/local/portal-hitl
 ```
@@ -50,8 +50,8 @@ continuing. There is no separate SPACE engagement key or automatic claim.
 
 ## Train and extend
 
-[`train.py`](../policies/act/train.py) runs LeRobot’s ACT trainer on the converted
-dataset. [`skypilot.yaml`](../policies/act/skypilot.yaml) is a cloud training
+[`train.py`](../src/policies/act/train.py) runs LeRobot’s ACT trainer on the converted
+dataset. [`skypilot.yaml`](../src/policies/act/skypilot.yaml) is a cloud training
 example; customize its cloud resources and storage mount before use.
 
 To add another model, keep the Portal connection, observation anchor, handoff

@@ -14,10 +14,10 @@ may control the robot.
 
 | Process | Portal role | What it does |
 |---|---|---|
-| `uv run robot.py` | Robot | Publishes joint state and wrist video; applies accepted actions |
-| `uv run teleoperator.py` | Operator | Reads the leader arm and lets you switch control |
-| `policies/act/inference.py` | Operator | Produces actions from an ACT checkpoint |
-| `uv run recorder.py` | Observer | Records streams and episode markers without driving |
+| `uv run src/robot.py` | Robot | Publishes joint state and wrist video; applies accepted actions |
+| `uv run src/teleoperator.py` | Operator | Reads the leader arm and lets you switch control |
+| `src/policies/act/inference.py` | Operator | Produces actions from an ACT checkpoint |
+| `uv run src/recorder.py` | Observer | Records streams and episode markers without driving |
 
 The human and policy use the same operator interface. The robot accepts actions
 from one active operator at a time. Pressing `c` in teleop changes that operator;

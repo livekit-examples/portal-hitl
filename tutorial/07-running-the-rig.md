@@ -36,9 +36,9 @@ Calibration files live under `~/.cache/huggingface/lerobot/calibration/`, in
 Run these in separate terminals, on the appropriate hosts:
 
 ```bash
-uv run robot.py
-uv run recorder.py
-uv run teleoperator.py
+uv run src/robot.py
+uv run src/recorder.py
+uv run src/teleoperator.py
 ```
 
 Enter the task description when teleop starts. Wait for live video and the
@@ -85,7 +85,7 @@ DATASET_ROOT=data/local/portal-hitl \
 OUTPUT_DIR=outputs/my-act \
 NUM_STEPS=20000 \
 BATCH_SIZE=64 \
-uv run --only-group train python policies/act/train.py
+uv run --only-group train python src/policies/act/train.py
 ```
 
 For a hosted dataset, set `DATASET_REPO_ID` and omit `DATASET_ROOT`. Training
@@ -101,10 +101,10 @@ and action horizon. Video decoding uses PyAV by default; set `VIDEO_BACKEND`
 to use another installed LeRobot backend.
 
 For cloud training, edit the resources and storage mount in
-[`policies/act/skypilot.yaml`](../policies/act/skypilot.yaml), then launch:
+[`src/policies/act/skypilot.yaml`](../src/policies/act/skypilot.yaml), then launch:
 
 ```bash
-sky launch policies/act/skypilot.yaml -e DATASET_REPO_ID=you/your-dataset
+sky launch src/policies/act/skypilot.yaml -e DATASET_REPO_ID=you/your-dataset
 ```
 
 The example uses a Nebius H100 and an `/outputs` object-storage mount. Change
@@ -116,7 +116,7 @@ Start the robot, recorder, and teleoperator again. On the inference host, make
 the checkpoint and training dataset metadata available, then run:
 
 ```bash
-uv run --group train python policies/act/inference.py \
+uv run --group train python src/policies/act/inference.py \
   --checkpoint outputs/my-act/checkpoints/020000/pretrained_model \
   --dataset-root data/local/portal-hitl
 ```
@@ -160,7 +160,7 @@ stalls in Portal 0.3.0rc1, see [Troubleshooting](#troubleshooting).
 
 ## Configuration
 
-Copy `.env.example` for the settings needed to connect the rig. `_common.py`
+Copy `.env.example` for the settings needed to connect the rig. `src/_common.py`
 loads repo-root `.env`, then `.env.local`, then the same files from the working
 directory. `.env` fills unset values; `.env.local` overrides them, including
 shell values. Relative output paths use the working directory.

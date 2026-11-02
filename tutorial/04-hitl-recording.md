@@ -6,7 +6,7 @@ the human uses the camera view, while ACT uses its input observation.
 
 ## Add an observer
 
-[`recorder.py`](../recorder.py)
+[`src/recorder.py`](../src/recorder.py)
 connects an `Observer`, waits for robot clock synchronization, and starts a
 Portal `RrdSink`:
 

@@ -36,4 +36,4 @@ envs:
   CHUNK_SIZE: 50
 
 run: |
-  uv run --only-group train python policies/act/train.py
+  uv run --only-group train python src/policies/act/train.py

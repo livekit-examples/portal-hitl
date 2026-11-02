@@ -32,12 +32,13 @@ For the commands to run the full loop, start with
 
 ```text
 portal.yaml             # shared camera, state, and action schema
-_common.py              # environment, tokens, and pacing
-robot.py                # publish observations and apply actions
-teleoperator.py         # leader arm, handoff, and episode markers
-recorder.py             # observer writing session archives
-utils/                  # hardware, hotkeys, preview, and task prompts
-policies/act/           # train.py, inference.py, skypilot.yaml
+src/
+  robot.py              # publish observations and apply actions
+  teleoperator.py       # leader arm, handoff, and episode markers
+  recorder.py           # observer writing session archives
+  _common.py            # environment, tokens, and pacing
+  utils/                # hardware, hotkeys, preview, and task prompts
+  policies/act/         # train.py, inference.py, skypilot.yaml
 tutorial/               # the HITL walkthrough
 scripts/                # deployment helper
 test/                   # hardware-free checks

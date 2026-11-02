@@ -1,6 +1,6 @@
 """Shared plumbing: env loading, LiveKit tokens, and the tick pacer.
 
-`portal.yaml` and the `.env` files live beside this file, at the repo root.
+`portal.yaml` and the `.env` files live one directory above this file, at the repo root.
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 from livekit import api
 from livekit.protocol.room import RoomConfiguration
 
-ROOT = pathlib.Path(__file__).resolve().parent
+ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT / "portal.yaml"
 
 ROBOT_IDENTITY = "robot"

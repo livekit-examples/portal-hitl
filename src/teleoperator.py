@@ -1,7 +1,7 @@
 """Operator side: reBot 102 leader -> Portal actions, and a window to fly by.
 
-Run with `uv run teleoperator.py`. Each tick reads one action off the leader and
-sends it; nothing is recorded here. `uv run recorder.py` is an observer in the
+Run with `uv run src/teleoperator.py`. Each tick reads one action off the leader and
+sends it; nothing is recorded here. `uv run src/recorder.py` is an observer in the
 same room that writes the archive, and this process only marks where the
 takes are, with keypoints, when a hotkey is pressed.
 

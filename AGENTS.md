@@ -6,13 +6,13 @@ Keep it small and readable. The README leads with the numbered `tutorial/`.
 
 ## Structure
 
-- `robot.py`, `teleoperator.py`, and `recorder.py` show the Portal flows.
-- `_common.py` holds shared environment, token, and scheduling helpers.
-- `utils/` contains hardware, preview, hotkey, and task-prompt details.
-- `policies/act/` contains training, inference, and a SkyPilot example.
+- `src/robot.py`, `src/teleoperator.py`, and `src/recorder.py` show the Portal flows.
+- `src/_common.py` holds shared environment, token, and scheduling helpers.
+- `src/utils/` contains hardware, preview, hotkey, and task-prompt details.
+- `src/policies/act/` contains training, inference, and a SkyPilot example.
 - `test/` checks behavior without hardware.
 
-Use plain scripts (`uv run robot.py`), not a package or console entry points.
+Use plain scripts (`uv run src/robot.py`), not a package or console entry points.
 Keep explanations in the tutorials rather than creating a separate docs layer.
 Update affected chapters with behavior changes.
 

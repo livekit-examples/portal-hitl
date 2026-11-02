@@ -20,7 +20,7 @@ from typing import Optional
 
 from pynput import keyboard
 
-# `1`-`9` select the session's task; see utils/session.py for why nine.
+# `1`-`9` select the session's task; see src/utils/session.py for why nine.
 KEYS = {"c", "r", "[", "x"} | {str(digit) for digit in range(1, 10)}
 
 # One keystroke can reach both taps at once -- X11 with the terminal focused

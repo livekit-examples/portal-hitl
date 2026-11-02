@@ -1,6 +1,6 @@
 # 3. Operator loop
 
-Open [`teleoperator.py`](../teleoperator.py).
+Open [`src/teleoperator.py`](../src/teleoperator.py).
 The human operator receives video, reads the leader arm, and sends one action
 per tick. It also controls handoff and marks episode boundaries.
 

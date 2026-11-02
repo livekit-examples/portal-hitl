@@ -4,7 +4,7 @@ import pathlib
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 
 # Must precede the first huggingface_hub import, so it lives here rather
 # than in a test script: this package's __init__ runs before any of them.

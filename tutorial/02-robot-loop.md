@@ -1,8 +1,8 @@
 # 2. Robot loop
 
-Open [`robot.py`](../robot.py).
+Open [`src/robot.py`](../src/robot.py).
 The loop reads the follower, publishes observations, and applies the latest
-accepted action. Hardware setup and recovery live in `utils/rebot.py`.
+accepted action. Hardware setup and recovery live in `src/utils/rebot.py`.
 
 ## Receive an action
 
@@ -52,6 +52,6 @@ Camera reads reuse the last good frame during a USB interruption and reconnect
 in the background. Motor I/O failures are counted and retried; repeated failures
 rebuild the CAN bus on the same worker thread. Recovery re-enables the motors.
 The target ramp resets from the present pose before commands resume. These
-hardware details stay in `utils/rebot.py` so the Portal loop remains readable.
+hardware details stay in `src/utils/rebot.py` so the Portal loop remains readable.
 
 Next: [03. Operator loop](03-operator-loop.md).
